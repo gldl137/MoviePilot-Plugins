@@ -6,7 +6,7 @@
         "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/music.png",
         "color": "#7eabf3",
         "author": "逗猫",
-        "level": 2,
+        "level": 1,
         "history": {
             "v7.1": "1. UI优化 2. 歌单去重 3. plex默认获取最高码率的歌",
             "v7.0": "1. cookie缓存 2. 支持网抑云获取每日推荐",
@@ -26,7 +26,7 @@
         "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
         "color": "#fefefe",
         "author": "逗猫",
-        "level": 2,
+        "level": 1,
         "history": {
             "v1.0": "修复使用缓存进行订阅搜索集数不全的问题",
             "v0.7": "界面点击名称跳转TMDB",
