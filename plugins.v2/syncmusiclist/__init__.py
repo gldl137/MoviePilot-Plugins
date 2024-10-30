@@ -35,7 +35,7 @@ class SyncMusicList(_PluginBase):
     # 加载顺序
     plugin_order = 17
     # 可使用的用户级别
-    auth_level = 2
+    auth_level = 1
 
     # 私有属性
     _scheduler: Optional[BackgroundScheduler] = None
