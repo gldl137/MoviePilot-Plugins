@@ -1,13 +1,12 @@
-import json
-import os
 import pytz
 from datetime import datetime, timedelta
 from threading import Event
-from typing import List, Tuple, Dict, Any, Optional
+from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
+from app.helper.service import ServiceConfigHelper
 from app.plugins import _PluginBase
 from typing import Any, List, Dict, Tuple
 from app.log import logger
@@ -25,7 +24,7 @@ class SyncMusicList(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/music.png"
     # 插件版本
-    plugin_version = "7.1"
+    plugin_version = "7.2"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -70,7 +69,9 @@ class SyncMusicList(_PluginBase):
         self._wylogin_pass = False
         # 获取用户名信息
         self._username = self.cm.login_status()
-
+        mediaserver_configs = ServiceConfigHelper.get_mediaserver_configs()
+        self.media_config = {conf.name: conf for conf in mediaserver_configs if conf.enabled}
+        self.media_list = [{'title': conf.name, 'value': conf.name} for conf in mediaserver_configs if conf.enabled]
 
         # 读取配置
         if config:
@@ -224,10 +225,7 @@ class SyncMusicList(_PluginBase):
                                             'multiple': True,
                                             'model': 'media_server',
                                             'label': '媒体服务器',
-                                            'items': [
-                                                {'title': 'Plex', 'value': 'plex'},
-                                                {'title': 'Emby', 'value': 'emby'},
-                                            ]
+                                            'items': self.media_list
                                         }
                                     }
                                 ],
@@ -632,14 +630,15 @@ class SyncMusicList(_PluginBase):
                                             'title': '使用说明:',
                                             'text':
                                                 '0. 耗时很长，建议每天一次即可，短时间重复运行会卡死; \n'
-                                                '00. 网抑云登录后支持每日推荐歌单的递增; \n'
-                                                '1. plex/emby服务器中存在音乐类型的库; \n'
-                                                '2. plex/emby的播放列表需要提前创建好并且里边至少有一首歌曲; \n'
-                                                '3. 如不存在会自动创建歌单, 如库中没符合的歌曲会创建失败; \n'
-                                                '4. 歌单同步只会搜索已存在歌曲进行添加,不会自动下载; \n'
-                                                '5. 歌曲匹配是模糊匹配只匹配曲名不匹配歌手; \n'
-                                                '6. 精准匹配打开后先进行歌曲搜索然后通过歌手来进行过滤; \n'
-                                                '7. emby支持多用户设置，plex自带分享无需创建; \n'
+                                                '1. 网抑云登录后支持每日推荐歌单的递增; \n'
+                                                '2. plex/emby服务器中存在音乐类型的库; \n'
+                                                '3. plex/emby的播放列表需要提前创建好并且里边至少有一首歌曲; \n'
+                                                '4. 如不存在会自动创建歌单, 如库中没符合的歌曲会创建失败; \n'
+                                                '5. 歌单同步只会搜索已存在歌曲进行添加,不会自动下载; \n'
+                                                '6. 歌曲匹配是模糊匹配只匹配曲名不匹配歌手; \n'
+                                                '7. 精准匹配打开后先进行歌曲搜索然后通过歌手来进行过滤; \n'
+                                                '8. emby支持多用户设置，plex自带分享无需创建; \n'
+                                                '9. v2版本记得要启动媒体服务器才能使用; \n'
                                         }
                                     }
                                 ]
@@ -664,8 +663,6 @@ class SyncMusicList(_PluginBase):
         开始同步歌单
         """
         global pm, em
-        plex_on = False
-        emby_on = False
         emby_users = []
         if not self._wymusic_paths and not self._qqmusic_paths  and not self._username:
             logger.info("同步配置为空,不进行处理。告退......")
@@ -673,23 +670,27 @@ class SyncMusicList(_PluginBase):
         if not self._media_server:
             logger.info("没有可用的媒体服务器,不进行处理。告退......")
             return
-        if 'plex' in self._media_server:
-            # plex 初始化
-            pm = PlexMusic()
-            pm.get_music_library()
-            pm.get_playlists()
-            plex_on = True
-            logger.info('媒体服务器设置包含Plex服务器')
-        if 'emby' in self._media_server:
-            # emby 初始化
-            em = EmbyMusic()
-            emby_on = True
-            emby_users = [em.default_user]
-            logger.info('媒体服务器设置包含Emby服务器')
+        qq = QQMusicApi()
         # 获取同步列表信息
-        if self._qqmusic_paths:
-            qq = QQMusicApi()
-            qqmusic_paths = self._qqmusic_paths.split("\n")
+
+        qqmusic_paths = self._qqmusic_paths.split("\n") if self._qqmusic_paths else []
+        wymusic_paths = self._wymusic_paths.split("\n") if self._wymusic_paths else []
+
+        for name in self._media_server:
+            server = self.media_config.get(name)
+            if not server:
+                continue
+            config = server.config
+            if server.type == 'plex':
+                pm = PlexMusic(host=config['host'], token=config['token'])
+                pm.get_music_library()
+                pm.get_playlists()
+            elif server.type == 'emby':
+                em = EmbyMusic(host=config['host'], apikey=config['apikey'])
+                emby_users = [em.default_user]
+                logger.info('媒体服务器设置包含Emby服务器')
+            else:
+                continue
             for path in qqmusic_paths:
                 data_list = path.split(':')
                 if len(data_list) == 2:
@@ -704,17 +705,14 @@ class SyncMusicList(_PluginBase):
                 if qq_play_id and media_playlist:
                     qq_tracks = qq.get_playlist_by_id(qq_play_id)
                     logger.info(f"QQ歌单 {qq_play_id} 获取歌曲[{len(qq_tracks)}]首,列表为: {qq_tracks}")
-                    if plex_on:
+                    if server.type == 'plex':
                         self.__t_plex(pm, qq_tracks, media_playlist)
-                    if emby_on:
+                    elif server.type == 'emby':
                         logger.info(
                             f"QQ歌单id: {qq_play_id}, 为Emby用户[{emby_users}]更新媒体库播放列表名称: {media_playlist}")
                         self.__t_emby(em, qq_tracks, media_playlist, emby_users)
-
                 else:
                     logger.warn(f"QQ音乐歌单同步设置配置不规范,请认真检查修改")
-        if self._wymusic_paths:
-            wymusic_paths = self._wymusic_paths.split("\n")
             for path in wymusic_paths:
                 data_list = path.split(':')
                 if len(data_list) == 2:
@@ -726,45 +724,46 @@ class SyncMusicList(_PluginBase):
                     logger.warn(f"网易云歌单同步设置配置不规范,请认真检查修改")
                     return
                 logger.info(f"网易云歌单id: {wy_play_id}, 媒体库播放列表名称: {media_playlist}")
-                self.cm_emby_plex(wy_play_id, media_playlist, emby_users, plex_on, emby_on)
-        if self._username:
-            # 每日推荐歌单
-            if self._wy_daily_list:
-                try:
-                    datas = self.cm.get_list_days()
-                    for data in datas:
-                        wy_play_id, media_playlist = data[0], data[1]
-                        self.cm_emby_plex(wy_play_id, media_playlist, emby_users, plex_on, emby_on)
-                except Exception as e:
-                    logger.error(e)
-                    logger.error(f"每日推荐歌单获取失败")
-            # 每日歌曲推荐
-            if self._wy_daily_song:
-                try:
-                    wy_tracks =  self.cm.get_song_daily()
-                    playlist = "每日歌曲推荐"
-                    logger.info(f"网易云歌单 {playlist} 获取歌曲[{len(wy_tracks)}]首,列表为: {wy_tracks}")
-                    if plex_on:
-                        self.__t_plex(pm, wy_tracks, playlist)
-                    if emby_on:
-                        logger.info(
-                            f"网易云歌单: {wy_tracks}, 为Emby用户{emby_users}更新媒体库播放列表名称: {playlist}")
-                        self.__t_emby(em, wy_tracks, playlist, emby_users)
-                except Exception as e:
-                    logger.error(e)
-                    logger.error(f"每日推荐更新失败")
+                self.cm_emby_plex(wy_play_id, media_playlist, emby_users, server.type)
+
+            if self._username:
+                # 每日推荐歌单
+                if self._wy_daily_list:
+                    try:
+                        datas = self.cm.get_list_days()
+                        for data in datas:
+                            wy_play_id, media_playlist = data[0], data[1]
+                            self.cm_emby_plex(wy_play_id, media_playlist, emby_users, server.type)
+                    except Exception as e:
+                        logger.error(e)
+                        logger.error(f"每日推荐歌单获取失败")
+                # 每日歌曲推荐
+                if self._wy_daily_song:
+                    try:
+                        wy_tracks =  self.cm.get_song_daily()
+                        playlist = "每日歌曲推荐"
+                        logger.info(f"网易云歌单 {playlist} 获取歌曲[{len(wy_tracks)}]首,列表为: {wy_tracks}")
+                        if server.type == 'plex':
+                            self.__t_plex(pm, wy_tracks, playlist)
+                        elif server.type == 'emby':
+                            logger.info(
+                                f"网易云歌单: {wy_tracks}, 为Emby用户{emby_users}更新媒体库播放列表名称: {playlist}")
+                            self.__t_emby(em, wy_tracks, playlist, emby_users)
+                    except Exception as e:
+                        logger.error(e)
+                        logger.error(f"每日推荐更新失败")
         return
 
-    def cm_emby_plex(self, wy_play_id, media_playlist, emby_users, plex_on, emby_on):
+    def cm_emby_plex(self, wy_play_id, media_playlist, emby_users, type):
         if wy_play_id and media_playlist:
             wy_tracks = self.cm.songofplaylist(wy_play_id)
             if not wy_tracks:
                 logger.error("网易云歌单获取失败，请登录账号重试")
             else:
                 logger.info(f"网易云歌单 {wy_play_id} 获取歌曲[{len(wy_tracks)}]首,列表为: {wy_tracks}")
-                if plex_on:
+                if type== 'plex':
                     self.__t_plex(pm, wy_tracks, media_playlist)
-                if emby_on:
+                elif type == 'emby':
                     logger.info(
                         f"网易云歌单: {wy_tracks}, 为Emby用户{emby_users}更新媒体库播放列表名称: {media_playlist}")
                     self.__t_emby(em, wy_tracks, media_playlist, emby_users)

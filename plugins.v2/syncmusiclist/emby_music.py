@@ -12,8 +12,9 @@ class EmbyMusic(Emby):
         继承根项目, 实现音乐库相关的api
     """
 
-    def __init__(self):
-        Emby.__init__(self)
+    def __init__(self, host: str = None, apikey: str = None, play_host: str = None,
+                 sync_libraries: list = None, **kwargs):
+        Emby.__init__(self, host=host, apikey=apikey)
         self.default_user = self.get_default_user(settings.SUPERUSER)
         self.music_libraries = []
         self.music_playlists = []

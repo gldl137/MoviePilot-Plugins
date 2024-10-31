@@ -2,7 +2,7 @@
     "SyncMusicList": {
         "name": "歌单同步",
         "description": "同步QQ/网易云歌单到plex&emby。",
-        "version": "7.1",
+        "version": "7.2",
         "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/music.png",
         "color": "#7eabf3",
         "author": "逗猫",

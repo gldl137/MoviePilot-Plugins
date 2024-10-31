@@ -12,8 +12,9 @@ class PlexMusic(Plex):
         继承根项目, 实现音乐库相关的api
     """
 
-    def __init__(self):
-        Plex.__init__(self)
+    def __init__(self, host: str = None, token: str = None, play_host: str = None,
+                 sync_libraries: list = None, **kwargs):
+        Plex.__init__(self, host=host, token=token)
         self.music_libraries = []
         self.music_playlists = []
         self.music_names = []
@@ -52,7 +53,10 @@ class PlexMusic(Plex):
 
     def get_playlists(self):
         """获取播放列表"""
-        playlists = self._plex.playlists()
+        try:
+            playlists = self._plex.playlists()
+        except:
+            playlists = []
         for playlist in playlists:
             if playlist.isAudio:
                 # music_playlists.append(
