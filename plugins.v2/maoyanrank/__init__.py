@@ -8,7 +8,6 @@ from typing import Tuple, List, Dict, Any
 import pytz
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from lxml import etree
 from playwright.sync_api import sync_playwright
 
 from app.chain.download import DownloadChain
@@ -19,16 +18,17 @@ from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import MediaType
+from app.utils.http import RequestUtils
 
 
 class MaoyanRank(_PluginBase):
     """
     获取猫眼的排行榜进行订阅,建议每天一次
     电影获取的url: https://piaofang.maoyan.com/dashboard-ajax/movie
-    电视剧获取的url: https://piaofang.maoyan.com/dashboard/webHeatData?showDate=20240223&seriesType=0&platformType=0
+    电视剧获取的url: {tv_url}?showDate=20240223&seriesType=0&platformType=0
         参数 showDate: 时间具体到天
         参数 seriesType: 代表类型 0: 电视剧 1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
-        参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果 5 搜狐 4 乐视 6 PPTV
+        参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果 5 搜狐 4 乐视 6 PPTV 20 网络电影networkHot=3
 
     详情链接:
     https://piaofang.maoyan.com/dashboard/movie?movieId=1489349
@@ -42,7 +42,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -64,10 +64,18 @@ class MaoyanRank(_PluginBase):
     _onlyonce = False
     _cron = ""
     _clear = False
-    _type = ['movie', 'web-heat']
+    # type细分 movie: 电影 web-heat 电视榜单 web-tv 网剧 zongyi 综艺  web-movie 网络电影
+    _type = ['movie', 'web-heat', 'web-tv', 'zongyi', 'web-movie']
+
     _num = 10
-    _seriesType = [0, 1, 2]
-    _platform = 0
+    _all_enabled: bool = False
+    _all_num = 10
+    _tx_enabled: bool = False
+    _tx_num = 10
+    _iqy_enabled: bool = False
+    _iqy_num = 10
+    _mg_enabled: bool = False
+    _mg_num = 10
 
     def init_plugin(self, config: dict = None):
         self.downloadchain = DownloadChain()
@@ -81,8 +89,16 @@ class MaoyanRank(_PluginBase):
 
             self._type = config.get("type")
             self._num = config.get("num", 10)
-            self._seriesType = config.get("seriesType")
-            self._platform = config.get("platform", 0)
+
+            self._all_enabled = config.get("all_enabled", False)
+            self._tx_enabled = config.get("tx_enabled", False)
+            self._iqy_enabled = config.get("iqy_enabled", False)
+            self._mg_enabled = config.get("mg_enabled", False)
+            self._all_num = config.get("all_num", 10)
+            self._tx_num = config.get("tx_num", 10)
+            self._iqy_num = config.get("iqy_num", 10)
+            self._mg_num = config.get("mg_num", 10)
+
 
         # 停止现有任务
         self.stop_service()
@@ -192,7 +208,7 @@ class MaoyanRank(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VTextField',
+                                        'component': 'VCronField',
                                         'props': {
                                             'model': 'cron',
                                             'label': '执行周期',
@@ -225,7 +241,7 @@ class MaoyanRank(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12,
+                                    'cols': 22,
                                     'md': 6
                                 },
                                 'content': [
@@ -238,7 +254,10 @@ class MaoyanRank(_PluginBase):
                                             'label': '订阅类型',
                                             'items': [
                                                 {'title': '电影票房榜单', 'value': 'movie'},
-                                                {'title': '网播热度榜单', 'value': 'web-heat'}
+                                                {'title': '电视剧热度榜单', 'value': 'web-heat'},
+                                                {'title': '网剧热度榜单', 'value': 'web-tv'},
+                                                {'title': '综艺热度榜单', 'value': 'zongyi'},
+                                                {'title': '网络电影榜单', 'value': 'web-movie'},
                                             ]
                                         }
                                     }
@@ -247,8 +266,8 @@ class MaoyanRank(_PluginBase):
                             {
                                 'component': 'VCol',
                                 'props': {
-                                    'cols': 12,
-                                    'md': 4
+                                    'cols': 22,
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -257,12 +276,37 @@ class MaoyanRank(_PluginBase):
                                             'multiple': False,
                                             'chips': True,
                                             'model': 'num',
-                                            'label': '榜单条数',
+                                            'label': '电影榜单条数',
                                             'items': [
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
                                                 {'title': '3', 'value': 3},
                                                 {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
                                                 {'title': '10', 'value': 10}
                                             ]
+                                        }
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VAlert',
+                                        'props': {
+                                            'type': 'info',
+                                            'variant': 'tonal',
+                                            'text': '下边针对电视剧，网剧，综艺的细分类进行设置不开启则不订阅电视剧；'
+                                                    '控制是并行的都打开会都进行订阅当然重复会进行过滤。'
                                         }
                                     }
                                 ]
@@ -280,17 +324,10 @@ class MaoyanRank(_PluginBase):
                                 },
                                 'content': [
                                     {
-                                        'component': 'VSelect',
+                                        'component': 'VSwitch',
                                         'props': {
-                                            'chips': True,
-                                            'multiple': True,
-                                            'model': 'seriesType',
-                                            'label': '网播剧类型',
-                                            'items': [
-                                                {'title': '电视剧', 'value': 0},
-                                                {'title': '网络剧', 'value': 1},
-                                                {'title': '综艺', 'value': 2}
-                                            ]
+                                            'model': 'all_enabled',
+                                            'label': '全网热门订阅',
                                         }
                                     }
                                 ]
@@ -299,7 +336,7 @@ class MaoyanRank(_PluginBase):
                                 'component': 'VCol',
                                 'props': {
                                     'cols': 12,
-                                    'md': 4
+                                    'md': 6
                                 },
                                 'content': [
                                     {
@@ -307,22 +344,165 @@ class MaoyanRank(_PluginBase):
                                         'props': {
                                             'multiple': False,
                                             'chips': True,
-                                            'model': 'platform',
-                                            'label': '流媒体平台',
+                                            'model': 'all_num',
+                                            'label': '榜单条数',
                                             'items': [
-                                                {'title': '全网', 'value': 0},
-                                                {'title': '优酷', 'value': 1},
-                                                {'title': '爱奇艺', 'value': 2},
-                                                {'title': '腾讯视频', 'value': 3},
-                                                {'title': '乐视', 'value': 4},
-                                                {'title': '搜狐', 'value': 5},
-                                                {'title': 'PPTV', 'value': 6},
-                                                {'title': '芒果', 'value': 7}
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
+                                                {'title': '3', 'value': 3},
+                                                {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
+                                                {'title': '10', 'value': 10}
                                             ]
                                         }
                                     }
                                 ]
                             }
+
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'tx_enabled',
+                                            'label': '腾讯热门订阅',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': False,
+                                            'chips': True,
+                                            'model': 'tx_num',
+                                            'label': '腾讯榜单条数',
+                                            'items': [
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
+                                                {'title': '3', 'value': 3},
+                                                {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
+                                                {'title': '10', 'value': 10}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'iqy_enabled',
+                                            'label': '爱奇艺热门订阅',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': False,
+                                            'chips': True,
+                                            'model': 'iqy_num',
+                                            'label': '爱奇艺榜单条数',
+                                            'items': [
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
+                                                {'title': '3', 'value': 3},
+                                                {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
+                                                {'title': '10', 'value': 10}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+
+                        ]
+                    },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'mg_enabled',
+                                            'label': '芒果热门订阅',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': False,
+                                            'chips': True,
+                                            'model': 'mg_num',
+                                            'label': '芒果榜单条数',
+                                            'items': [
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
+                                                {'title': '3', 'value': 3},
+                                                {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
+                                                {'title': '10', 'value': 10}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+
                         ]
                     },
                 ]
@@ -332,10 +512,16 @@ class MaoyanRank(_PluginBase):
             "onlyonce": False,
             "cron": "",
             "clear": False,
-            "type": ['movie', 'web-heat'],
+            "type": ['movie', 'web-heat', 'web-tv', 'zongyi', 'web-movie'],
             "num": 10,
-            "seriesType": [0, 1, 2],
-            "platform": 0,
+            "all_enabled": False,
+            "tx_enabled": False,
+            "iqy_enabled": False,
+            "mg_enabled": False,
+            "all_num": 10,
+            "tx_num": 10,
+            "iqy_num": 10,
+            "mg_num": 10,
         }
 
     def get_page(self) -> List[dict]:
@@ -488,8 +674,14 @@ class MaoyanRank(_PluginBase):
             "onlyonce": self._onlyonce,
             "type": self._type,
             "num": self._num,
-            "seriesType": self._seriesType,
-            "platform": self._platform,
+            "all_enabled": self._all_enabled,
+            "tx_enabled": self._tx_enabled,
+            "iqy_enabled": self._iqy_enabled,
+            "mg_enabled": self._mg_enabled,
+            "all_num": self._all_num,
+            "tx_num": self._tx_num,
+            "iqy_num": self._iqy_num,
+            "mg_num": self._mg_num,
         })
 
     def __refresh_maoyan(self):
@@ -498,7 +690,7 @@ class MaoyanRank(_PluginBase):
         电影获取的url:
         https://piaofang.maoyan.com/dashboard-ajax/movie
         电视剧获取的url:
-        https://piaofang.maoyan.com/dashboard/webHeatData?showDate=20240223&seriesType=0&platformType=0
+        {tv_url}?showDate=20240223&seriesType=0&platformType=0
         参数 showDate: 时间具体到天
         参数 seriesType: 代表类型 0: 电视剧 1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
         参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果 5 搜狐 4 乐视 6 PPTV
@@ -511,31 +703,78 @@ class MaoyanRank(_PluginBase):
         history: List[dict] = self.get_data('history') or []
         #
         movie_url = ''
+        web_movie_url = ''
         tv_urls = []
+        # 获取当前日期时间格式化为字符串
+        format_date = current_time.strftime("%Y-%m-%d")
+        maoyan_url = 'https://piaofang.maoyan.com'
         if 'movie' in self._type:
-            movie_url = 'https://piaofang.maoyan.com/dashboard-ajax/movie'
+            movie_url = f'{maoyan_url}/dashboard-ajax/movie'
+        if 'web-movie' in self._type:
+
+            web_movie_url = (f'{maoyan_url}/dashboard/webMaoYanHotData?seriesType=0&platform=20&'
+                             f'date={format_date}&networkHot=3')
+        # 0: 电视剧  1: 网络剧 2: 综艺 不传递-1代表电视剧+网络剧
+        # 参数 platformType: 代表平台 0 全网 3 腾讯视频 2 爱奇艺 1 优酷 7 芒果
+        # 电视剧
+        tv_url = f'{maoyan_url}/dashboard/webHeatData'
         if 'web-heat' in self._type:
-            # 获取当前日期时间格式化为字符串
-            url_header = 'https://piaofang.maoyan.com/dashboard/webHeatData'
-            format_date = current_time.strftime("%Y%m%d")
-            if len(self._seriesType) == 3:
-                tv_urls = [
-                    f'{url_header}?showDate={format_date}&platformType={self._platform}',
-                    f'{url_header}?showDate={format_date}&seriesType=2&platformType={self._platform}',
-                ]
-            elif all(i in self._seriesType for i in [0, 1]):
-                tv_urls = [
-                    f'{url_header}?showDate={format_date}&platformType={self._platform}',
-                ]
-            else:
-                for series in self._seriesType:
-                    tv_urls.append(
-                        f'{url_header}?showDate={format_date}&seriesType={series}&platformType={self._platform}',
-                    )
+            # 全网
+            if self._all_enabled:
+                url = f'{tv_url}?seriesType=0&platformType=&showDate=2'
+                tv_urls.append([url, self._all_num])
+            # tx
+            if self._tx_enabled:
+                url = f'{tv_url}?seriesType=0&platformType=3&showDate=2'
+                tv_urls.append([url, self._tx_num])
+            # iqy
+            if self._iqy_enabled:
+                url = f'{tv_url}?seriesType=0&platformType=2&showDate=2'
+                tv_urls.append([url, self._iqy_num])
+            # mg
+            if self._mg_enabled:
+                url = f'{tv_url}?seriesType=0&platformType=7&showDate=2'
+                tv_urls.append([url, self._mg_num])
+        # 网剧
+        if 'web-tv' in self._type:
+            # 全网
+            if self._all_enabled:
+                url = f'{tv_url}?seriesType=1&platformType=&showDate=2'
+                tv_urls.append([url, self._all_num])
+            # tx
+            if self._tx_enabled:
+                url = f'{tv_url}?seriesType=1&platformType=3&showDate=2'
+                tv_urls.append([url, self._tx_num])
+            # iqy
+            if self._iqy_enabled:
+                url = f'{tv_url}?seriesType=1&platformType=2&showDate=2'
+                tv_urls.append([url, self._iqy_num])
+            # mg
+            if self._mg_enabled:
+                url = f'{tv_url}?seriesType=1&platformType=7&showDate=2'
+                tv_urls.append([url, self._mg_num])
+        # 综艺
+        if 'zongyi' in self._type:
+            # 全网
+            if self._all_enabled:
+                url = f'{tv_url}?seriesType=2&platformType=&showDate=2'
+                tv_urls.append([url, self._all_num])
+            # tx
+            if self._tx_enabled:
+                url = f'{tv_url}?seriesType=2&platformType=3&showDate=2'
+                tv_urls.append([url, self._tx_num])
+            # iqy
+            if self._iqy_enabled:
+                url = f'{tv_url}?seriesType=2&platformType=2&showDate=2'
+                tv_urls.append([url, self._iqy_num])
+            # mg
+            if self._mg_enabled:
+                url = f'{tv_url}?seriesType=2&platformType=7&showDate=2'
+                tv_urls.append([url, self._mg_num])
         tv_list = []
         movie_list = []
         try:
-            movie_list, tv_list = self.__get_url_info(movie_url, tv_urls, nums)
+            movie_list, tv_list = self.__get_url_info(movie_url, tv_urls, web_movie_url, nums)
         except Exception as e:
             logger.warn(e)
         self.set_sub(movie_list, history, MediaType.MOVIE)
@@ -604,70 +843,76 @@ class MaoyanRank(_PluginBase):
             except Exception as e:
                 logger.error(str(e))
 
-    def __get_url_info(self, movie_url, tv_urls, num=10):
+    def __get_url_info(self, movie_url, tv_urls, web_movie_url, num=10):
         """
         根据url获取
         """
         movies_list = []
         tv_list = []
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
+        user_agent = self.get_random_user_agent()
+        headers = {
+            'User-Agent': user_agent,
+        }
+        cookies = self.get_cookies()
+        if movie_url:
             try:
-                context = browser.new_context(user_agent=self.get_random_user_agent())
-                page1 = context.new_page()
-                page2 = context.new_page()
-                if movie_url:
-                    try:
-                        # 打开网页
-                        page1.goto(movie_url)
-                        # 获取页面内容
-                        html_text1 = page1.content()
-                        body = etree.HTML(html_text1)
-                        res = json.loads(str(body.xpath('//body//text()')[0]))
-                        data = res.get('movieList', {}).get('list', [])
+                # 打开网页
+                response = RequestUtils().get_res(movie_url, cookies=cookies, headers=headers)
+                # 获取页面内容
+                res = response.json()
+                data = res.get('movieList', {}).get('list', [])
+                def info(movie):
+                    infos = movie.get('movieInfo')
+                    return {
+                        "title": infos.get('movieName'),
+                        "releaseInfo": infos.get('releaseInfo'),
+                    }
 
-                        def info(movie):
-                            infos = movie.get('movieInfo')
-                            return {
-                                "title": infos.get('movieName'),
-                                "releaseInfo": infos.get('releaseInfo'),
-                            }
-
-                        movies_list = [info(i) for i in data][:num]
-                    except Exception as e:
-                        logger.error(f"获取网页源码失败: {str(e)}")
-                if tv_urls:
-                    for tv_url in tv_urls:
-                        try:
-                            # 打开网页
-                            page2.goto(tv_url)
-                            # 获取页面内容
-                            html_text2 = page2.content()
-                            body = etree.HTML(html_text2)
-                            res = json.loads(str(body.xpath('//body//text()')[0]))
-                            data = res.get('dataList', {}).get('list', [])
-
-                            def tv_info(tv):
-                                infos = tv.get('seriesInfo')
-                                return {
-                                    "title": infos.get('name'),
-                                    "releaseInfo": infos.get('releaseInfo'),
-                                    "platformDesc": infos.get('platformDesc'),
-                                }
-
-                            tv_list.extend([tv_info(i) for i in data][:num])
-                        except Exception as e:
-                            logger.error(f"获取网页源码失败: {str(e)}")
-                    # 使用字典推导式和集合保持唯一性
-                    unique_dicts = {item['title']: item for item in tv_list}.values()
-                    # 转回列表形式
-                    tv_list = list(unique_dicts)
+                movies_list += [info(i) for i in data][:num]
             except Exception as e:
                 logger.error(f"获取网页源码失败: {str(e)}")
-            finally:
-                # 关闭页面
-                browser.close()
+        if web_movie_url:
+            try:
+                # 打开网页
+                response = RequestUtils().get_res(web_movie_url, cookies=cookies, headers=headers)
+                # 获取页面内容
+                res = response.json()
+                data = res.get('data', {}).get('list', [])
+                def info(movie):
+                    return {
+                        "title": movie.get('name'),
+                        "platformDesc": movie.get('platformDesc'),
+                    }
+
+                movies_list += [info(i) for i in data][:num]
+            except Exception as e:
+                logger.error(f"获取网页源码失败: {str(e)}")
+        if tv_urls:
+            for tv in tv_urls:
+                try:
+                    tv_url = tv[0]
+                    tv_num = tv[1]
+                    # 打开网页
+                    response = RequestUtils().get_res(tv_url, cookies=cookies, headers=headers)
+                    # 获取页面内容
+                    res = response.json()
+                    data = res.get('dataList', {}).get('list', [])
+
+                    def tv_info(tv):
+                        infos = tv.get('seriesInfo')
+                        return {
+                            "title": infos.get('name'),
+                            "releaseInfo": infos.get('releaseInfo'),
+                            "platformDesc": infos.get('platformDesc'),
+                        }
+                    tv_list.extend([tv_info(i) for i in data][:tv_num])
+                except Exception as e:
+                    logger.error(f"获取网页源码失败: {str(e)}")
+            # 使用字典推导式和集合保持唯一性
+            unique_dicts = {item['title']: item for item in tv_list}.values()
+            # 转回列表形式
+            tv_list = list(unique_dicts)
+
         return movies_list, tv_list
 
     @staticmethod
@@ -678,3 +923,21 @@ class MaoyanRank(_PluginBase):
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         ]
         return random.choice(user_agents)
+
+    @staticmethod
+    def get_cookies():
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            try:
+                page = browser.new_page()
+                page.goto('https://piaofang.maoyan.com')
+                cookies = page.context.cookies()
+                logger.debug(f"maoyan cookie: {cookies}")
+                mao_cookies = {c['name']: c['value'] for c in cookies}
+            except Exception as e:
+                logger.error(f"获取网页源码失败: {str(e)}")
+            finally:
+                # 关闭页面
+                browser.close()
+            return mao_cookies
+
