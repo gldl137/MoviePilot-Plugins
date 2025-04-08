@@ -857,7 +857,10 @@ class MaoyanRank(_PluginBase):
         if movie_url:
             try:
                 # 打开网页
-                response = RequestUtils().get_res(movie_url, cookies=cookies, headers=headers)
+                if cookies:
+                    response = RequestUtils().get_res(movie_url, cookies=cookies, headers=headers)
+                else:
+                    response = RequestUtils().get_res(movie_url, headers=headers)
                 # 获取页面内容
                 res = response.json()
                 data = res.get('movieList', {}).get('list', [])
@@ -874,7 +877,10 @@ class MaoyanRank(_PluginBase):
         if web_movie_url:
             try:
                 # 打开网页
-                response = RequestUtils().get_res(web_movie_url, cookies=cookies, headers=headers)
+                if cookies:
+                    response = RequestUtils().get_res(web_movie_url, cookies=cookies, headers=headers)
+                else:
+                    response = RequestUtils().get_res(web_movie_url, headers=headers)
                 # 获取页面内容
                 res = response.json()
                 data = res.get('data', {}).get('list', [])
@@ -893,7 +899,10 @@ class MaoyanRank(_PluginBase):
                     tv_url = tv[0]
                     tv_num = tv[1]
                     # 打开网页
-                    response = RequestUtils().get_res(tv_url, cookies=cookies, headers=headers)
+                    if cookies:
+                        response = RequestUtils().get_res(tv_url, cookies=cookies, headers=headers)
+                    else:
+                        response = RequestUtils().get_res(tv_url, headers=headers)
                     # 获取页面内容
                     res = response.json()
                     data = res.get('dataList', {}).get('list', [])
