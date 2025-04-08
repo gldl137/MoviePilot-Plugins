@@ -926,6 +926,7 @@ class MaoyanRank(_PluginBase):
 
     @staticmethod
     def get_cookies():
+        mao_cookies = {}
         with sync_playwright() as p:
             browser = p.chromium.launch()
             try:
@@ -939,5 +940,5 @@ class MaoyanRank(_PluginBase):
             finally:
                 # 关闭页面
                 browser.close()
-            return mao_cookies
+        return mao_cookies
 
