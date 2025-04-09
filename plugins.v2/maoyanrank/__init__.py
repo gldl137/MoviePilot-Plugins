@@ -42,7 +42,7 @@ class MaoyanRank(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "2.7"
     # 插件作者
     plugin_author = "逗猫"
     # 作者主页
@@ -76,6 +76,8 @@ class MaoyanRank(_PluginBase):
     _iqy_num = 10
     _mg_enabled: bool = False
     _mg_num = 10
+    _yk_enabled: bool = False
+    _yk_num = 10
 
     def init_plugin(self, config: dict = None):
         self.downloadchain = DownloadChain()
@@ -94,10 +96,12 @@ class MaoyanRank(_PluginBase):
             self._tx_enabled = config.get("tx_enabled", False)
             self._iqy_enabled = config.get("iqy_enabled", False)
             self._mg_enabled = config.get("mg_enabled", False)
+            self._yk_enabled = config.get("yk_enabled", False)
             self._all_num = config.get("all_num", 10)
             self._tx_num = config.get("tx_num", 10)
             self._iqy_num = config.get("iqy_num", 10)
             self._mg_num = config.get("mg_num", 10)
+            self._yk_num = config.get("yk_num", 10)
 
 
         # 停止现有任务
@@ -505,6 +509,54 @@ class MaoyanRank(_PluginBase):
 
                         ]
                     },
+                    {
+                        'component': 'VRow',
+                        'content': [
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'yk_enabled',
+                                            'label': '优酷热门订阅',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 6
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSelect',
+                                        'props': {
+                                            'multiple': False,
+                                            'chips': True,
+                                            'model': 'yk_num',
+                                            'label': '优酷榜单条数',
+                                            'items': [
+                                                {'title': '1', 'value': 1},
+                                                {'title': '2', 'value': 2},
+                                                {'title': '3', 'value': 3},
+                                                {'title': '5', 'value': 5},
+                                                {'title': '7', 'value': 7},
+                                                {'title': '10', 'value': 10}
+                                            ]
+                                        }
+                                    }
+                                ]
+                            }
+
+                        ]
+                    },
                 ]
             }
         ], {
@@ -518,10 +570,11 @@ class MaoyanRank(_PluginBase):
             "tx_enabled": False,
             "iqy_enabled": False,
             "mg_enabled": False,
+            "yk_enabled": False,
             "all_num": 10,
             "tx_num": 10,
             "iqy_num": 10,
-            "mg_num": 10,
+            "yk_num": 10,
         }
 
     def get_page(self) -> List[dict]:
@@ -678,10 +731,12 @@ class MaoyanRank(_PluginBase):
             "tx_enabled": self._tx_enabled,
             "iqy_enabled": self._iqy_enabled,
             "mg_enabled": self._mg_enabled,
+            "yk_enabled": self._yk_enabled,
             "all_num": self._all_num,
             "tx_num": self._tx_num,
             "iqy_num": self._iqy_num,
             "mg_num": self._mg_num,
+            "yk_num": self._yk_num,
         })
 
     def __refresh_maoyan(self):
@@ -735,6 +790,10 @@ class MaoyanRank(_PluginBase):
             if self._mg_enabled:
                 url = f'{tv_url}?seriesType=0&platformType=7&showDate=2'
                 tv_urls.append([url, self._mg_num])
+            # yk
+            if self._yk_enabled:
+                url = f'{tv_url}?seriesType=0&platformType=1&showDate=2'
+                tv_urls.append([url, self._yk_num])
         # 网剧
         if 'web-tv' in self._type:
             # 全网
@@ -753,6 +812,10 @@ class MaoyanRank(_PluginBase):
             if self._mg_enabled:
                 url = f'{tv_url}?seriesType=1&platformType=7&showDate=2'
                 tv_urls.append([url, self._mg_num])
+            # yk
+            if self._yk_enabled:
+                url = f'{tv_url}?seriesType=1&platformType=1&showDate=2'
+                tv_urls.append([url, self._yk_num])
         # 综艺
         if 'zongyi' in self._type:
             # 全网
@@ -771,6 +834,10 @@ class MaoyanRank(_PluginBase):
             if self._mg_enabled:
                 url = f'{tv_url}?seriesType=2&platformType=7&showDate=2'
                 tv_urls.append([url, self._mg_num])
+            # yk
+            if self._yk_enabled:
+                url = f'{tv_url}?seriesType=2&platformType=1&showDate=2'
+                tv_urls.append([url, self._yk_num])
         tv_list = []
         movie_list = []
         try:

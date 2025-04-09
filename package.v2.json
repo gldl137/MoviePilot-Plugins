@@ -23,12 +23,13 @@
     "MaoyanRank": {
         "name": "猫眼榜单订阅",
         "description": "监控猫眼数据，自动添加订阅。",
-        "version": "1.7",
+        "version": "2.7",
         "icon": "https://raw.githubusercontent.com/baozaodetudou/MoviePilot-Plugins/main/icons/maoyan.jpg",
         "color": "#fefefe",
         "author": "逗猫",
         "level": 1,
         "history": {
+            "v2.7": "增加优酷平台获取",
             "v1.7": "更改榜单的排列组合支持多个平台同时订阅的功能",
             "v1.6": "适配新的url获取",
             "v1.5": "增加了条数配置选项支持1,2,3,5,7,10选择",
