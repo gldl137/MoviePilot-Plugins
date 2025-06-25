@@ -3,8 +3,8 @@
         "name": "cloud189助手",
         "description": "STRM文件删除后自动清理对应的cloud189任务",
         "labels": "站点",
-        "version": "1.1",
-        "icon": "https://raw.githubusercontent.com/KoWming/MoviePilot-Plugins/main/icons/ExploreServices.png",
+        "version": "1.0",
+        "icon": "cloud_delete.png",
         "author": "gldl137",
         "level": 2,
         "v2": true
