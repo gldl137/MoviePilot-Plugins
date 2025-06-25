@@ -22,7 +22,7 @@ class Cloud189helper(_PluginBase):
     plugin_icon = "cloud_delete.png"
     plugin_version = "1.0"
     plugin_author = "gldl137"
-    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
+    author_url = "https://github.com/gldl137"
     plugin_config_prefix = "cloud189_helper_"
     plugin_order = 16
     auth_level = 1
