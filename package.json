@@ -1,12 +1,15 @@
 {
-  "CustomSites": {
-      "name": "自定义站点",
-      "description": "增加自定义站点为签到和统计使用。",
-      "labels": "站点",
-      "version": "1.0",
-      "icon": "world.png",
-      "author": "lightolly",
-      "level": 1,
-      "v2": true
-  }
+    "ExploreServices": {
+        "name": "cloud189助手",
+        "description": "STRM文件删除后自动清理对应的cloud189任务",
+        "labels": "站点",
+        "version": "1.0",
+        "icon": "cloud_delete.png",
+        "author": "gldl137",
+        "level": 2,
+        "v2": true
+        "history": {
+            "v1.0": "初始版本。"
+        }
+    }
 }
