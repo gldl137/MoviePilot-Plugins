@@ -1,5 +1,5 @@
 {
-    "CASTaskCleaner": {
+    "castaskcleaner": {
         "name": "CAS任务清理",
         "description": "自动清理《天翼云盘自动转存》中已完成任务，并通知追剧进度。",
         "version": "1.1",
