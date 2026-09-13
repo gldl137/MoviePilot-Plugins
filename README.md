@@ -31,9 +31,10 @@ MoviePilot 第三方插件库（V3），收录自用插件，用于增强 MovieP
 
 ## 🧩 插件详情
 
-每个插件的功能、配置项与更新历史如下。
+点击每个插件的标题即可**展开 / 收起**，查看它的功能、配置项与更新历史。
 
-### 1. ⚡ ARIA2 下载器 (ARIADOWNLOADER)
+<details>
+<summary><b>1. ⚡ Aria2 下载器 (Aria2Downloader) —— v1.0.0</b></summary>
 
 v1.0.0 · 下载器 · 纯发送型下载器，触发下载时把任务推给 Aria2
 
@@ -46,7 +47,10 @@ v1.0.0 · 下载器 · 纯发送型下载器，触发下载时把任务推给 Ar
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 2. 📥 OPENLIST 自动下载 (OPENLISTDOWNLOADER)
+</details>
+
+<details>
+<summary><b>2. 📥 OpenList 自动下载 (OpenListDownloader) —— v1.0.0</b></summary>
 
 v1.0.0 · 下载器,OpenList · 定时扫描 OpenList 目录，新增文件自动交给 Aria2
 
@@ -63,7 +67,10 @@ v1.0.0 · 下载器,OpenList · 定时扫描 OpenList 目录，新增文件自�
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 3. 🗑️ EMBY同步删除云盘 (EMBYSYNCDELETIONCLOUD)
+</details>
+
+<details>
+<summary><b>3. 🗑️ Emby同步删除云盘 (embysyncdeletioncloud) —— v1.0.0</b></summary>
 
 v1.0.0 · 媒体库,Emby,云盘 · Emby 删除媒体时联动删除本地与云盘文件
 
@@ -79,7 +86,10 @@ v1.0.0 · 媒体库,Emby,云盘 · Emby 删除媒体时联动删除本地与云�
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 4. 🧹 CAS任务清理 (CASTASKCLEANER)
+</details>
+
+<details>
+<summary><b>4. 🧹 CAS任务清理 (CASTaskCleaner) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,CAS,Emby · 自动清理 CAS 已完成任务并通知追剧进度
 
@@ -94,7 +104,10 @@ v1.0.0 · 工具,CAS,Emby · 自动清理 CAS 已完成任务并通知追剧进�
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 5. 🎵 音乐整理 (MUSICFILEORGANIZER)
+</details>
+
+<details>
+<summary><b>5. 🎵 音乐整理 (MusicFileOrganizer) —— v1.0.0</b></summary>
 
 v1.0.0 · 音乐,整理 · 按命名规则自动整理本地音乐文件
 
@@ -110,7 +123,10 @@ v1.0.0 · 音乐,整理 · 按命名规则自动整理本地音乐文件
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 6. 🎼 音乐刮削助手 (MUSICSCRAPERHELP)
+</details>
+
+<details>
+<summary><b>6. 🎼 音乐刮削助手 (MusicScraperHelp) —— v1.0.0</b></summary>
 
 v1.0.0 · 音乐,刮削 · 对接 Music-Scraper 自动刮削音乐元数据
 
@@ -125,7 +141,10 @@ v1.0.0 · 音乐,刮削 · 对接 Music-Scraper 自动刮削音乐元数据
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 7. 🎧 喜马拉雅XM解密 (XIMALAYAXMDECRYPT)
+</details>
+
+<details>
+<summary><b>7. 🎧 喜马拉雅XM解密 (XimalayaXMDecrypt) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,解密,音频 · 输入目录 → 输出目录，批量解密 .xm 加密音频
 
@@ -141,7 +160,10 @@ v1.0.0 · 工具,解密,音频 · 输入目录 → 输出目录，批量解密 .
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 8. 📤 OPENLIST上传助手 (OPENLISTUPLOADHELPER)
+</details>
+
+<details>
+<summary><b>8. 📤 OpenList上传助手 (OpenListUploadHelper) —— v1.0.0</b></summary>
 
 v1.0.0 · OpenList,上传 · 本地文件自动上传到 OpenList 网盘
 
@@ -157,7 +179,10 @@ v1.0.0 · OpenList,上传 · 本地文件自动上传到 OpenList 网盘
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 9. 🩺 OPENLIST监测助手 (OPENLISTMONITORHELPER)
+</details>
+
+<details>
+<summary><b>9. 🩺 OpenList监测助手 (OpenListMonitorHelper) —— v1.0.0</b></summary>
 
 v1.0.0 · OpenList,监测 · 通过 API 检测 OpenList 存储异常
 
@@ -171,7 +196,10 @@ v1.0.0 · OpenList,监测 · 通过 API 检测 OpenList 存储异常
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 10. 🔗 STRM文件转换 (STRMMODIFIER)
+</details>
+
+<details>
+<summary><b>10. 🔗 STRM文件转换 (StrmModifier) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,STRM · 把 STRM 文件内容改写为 OpenList 地址
 
@@ -186,7 +214,10 @@ v1.0.0 · 工具,STRM · 把 STRM 文件内容改写为 OpenList 地址
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 11. 🛡️ 系统命令屏蔽 (BLOCKSYSTEMCOMMANDS)
+</details>
+
+<details>
+<summary><b>11. 🛡️ 系统命令屏蔽 (BlockSystemCommands) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,命令 · 屏蔽指定系统命令，防止误操作
 
@@ -199,7 +230,10 @@ v1.0.0 · 工具,命令 · 屏蔽指定系统命令，防止误操作
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 12. ⌨️ 命令帮助 (COMMANDHELPER)
+</details>
+
+<details>
+<summary><b>12. ⌨️ 命令帮助 (CommandHelper) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,命令 · 一条命令列出所有插件的交互命令
 
@@ -212,7 +246,10 @@ v1.0.0 · 工具,命令 · 一条命令列出所有插件的交互命令
 * 更新说明：
   * v1.0.0：首次发布。
 
-### 13. ⏰ 定时任务禁用 (DISABLETASKS)
+</details>
+
+<details>
+<summary><b>13. ⏰ 定时任务禁用 (DisableTasks) —— v1.0.0</b></summary>
 
 v1.0.0 · 工具,定时任务 · 按需禁用系统定时任务
 
@@ -224,6 +261,8 @@ v1.0.0 · 工具,定时任务 · 按需禁用系统定时任务
   * 🔁 重启 MoviePilot 后依旧按配置生效
 * 更新说明：
   * v1.0.0：首次发布。
+
+</details>
 
 ## 📂 目录结构
 
