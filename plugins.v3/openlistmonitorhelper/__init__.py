@@ -25,9 +25,9 @@ class OpenListMonitorHelper(_PluginBase):
     plugin_name = "OpenList监测助手"
     plugin_desc = "OpenList存储状态监测工具 - 通过API检测存储异常"
     plugin_icon = "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png"
-    plugin_version = "1.0"
-    plugin_author = "OpenListHelper"
-    author_url = "https://github.com/opentvmedia/OpenTV"
+    plugin_version = "1.0.0"
+    plugin_author = "gldl137"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "OpenListMonitorHelper"
     plugin_order = 12
     auth_level = 1

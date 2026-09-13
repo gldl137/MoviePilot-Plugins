@@ -133,7 +133,7 @@ class OpenListUploadHelper(_PluginBase):
     plugin_name = "OpenList上传助手"
     plugin_desc = "文件上传工具 - 支持本地文件自动上传到OpenList网盘，支持命令交互"
     plugin_icon = "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png"
-    plugin_version = "2.3"
+    plugin_version = "1.0.0"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "OpenListUploadHelper"

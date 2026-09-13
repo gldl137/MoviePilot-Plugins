@@ -112,11 +112,11 @@ class embysyncdeletioncloud(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "1.0.0"
     # 插件作者
-    plugin_author = "gldl"
+    plugin_author = "gldl137"
     # 作者主页
-    author_url = "https://github.com/gldl"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "embysyncdeletioncloud_"
     # 加载顺序

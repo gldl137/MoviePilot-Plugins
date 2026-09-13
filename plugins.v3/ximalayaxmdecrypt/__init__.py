@@ -534,8 +534,8 @@ class XimalayaXMDecrypt(_PluginBase):
     plugin_desc = PLUGIN_DESC
     plugin_icon = "music.png"
     plugin_version = "1.0.0"
-    plugin_author = "Diaoxiaozhang"
-    author_url = "https://github.com/Diaoxiaozhang/Ximalaya-XM-Decrypt"
+    plugin_author = "gldl137"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "ximalayaxmdecrypt_"
     plugin_order = 30
     auth_level = 1

@@ -133,7 +133,7 @@ class MusicFileOrganizer(_PluginBase):
     # 插件图标
     plugin_icon = "music.png"
     # 插件版本
-    plugin_version = "1.9"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页

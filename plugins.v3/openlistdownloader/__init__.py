@@ -36,6 +36,8 @@ class OpenListDownloader(_PluginBase):
     plugin_name = _PLUGIN_NAME
     plugin_desc = "定时扫描 OpenList 指定目录的新增文件，通过 Aria2 自动下载到本地。"
     plugin_version = "1.0.0"
+    plugin_author = "gldl137"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_order = 20
 
     # 配置默认值

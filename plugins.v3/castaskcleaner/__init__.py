@@ -49,11 +49,11 @@ class CASTaskCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "cloud189.png"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "1.0.0"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
-    author_url = "https://github.com/gldl137"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "CASTaskCleaner"
     # 加载顺序

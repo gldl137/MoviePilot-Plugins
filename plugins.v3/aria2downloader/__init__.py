@@ -210,9 +210,9 @@ class Aria2Downloader(_PluginBase):
     plugin_name = "Aria2 下载器"
     plugin_desc = "纯发送型下载器：触发下载时把链接/种子发给 Aria2，并提供下载记录面板查看进度（不后台轮询）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.0"
-    plugin_author = "your-name"
-    author_url = "https://github.com/your-name"
+    plugin_version = "1.0.0"
+    plugin_author = "gldl137"
+    author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "aria2_"
     plugin_order = 50
     auth_level = 1
