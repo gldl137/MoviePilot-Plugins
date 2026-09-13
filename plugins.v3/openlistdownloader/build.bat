@@ -5,8 +5,10 @@ setlocal enabledelayedexpansion
 REM ============================================================
 REM  OpenListDownloader frontend build script
 REM  Output -> plugin root /dist/assets/
-REM  NOTE: build under V: real path (N: is a symlink of V: and
-REM        @originjs fails on drive letter mismatch)
+REM  NOTE: always run this script from the real drive path;
+REM        building through a symlink / subst drive letter can
+REM        make the @originjs federation build fail (drive
+REM        letter mismatch).
 REM ============================================================
 
 REM Ensure Node.js is on PATH
@@ -15,8 +17,8 @@ if exist "%NODE_PATH%\npm.cmd" (
     set "PATH=%NODE_PATH%;%PATH%"
 )
 
-REM cd to frontend directory
-cd /d "V:\MoviePilot-Plugins\plugins.v3\openlistdownloader\frontend"
+REM cd to frontend directory (relative to this script, no hard-coded path)
+cd /d "%~dp0frontend"
 
 echo [1/3] Clean old dist ...
 if exist "..\dist" (
