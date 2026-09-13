@@ -1,0 +1,9 @@
+[project]
+name = "moviepilot-plugin-ximalayaxmdecrypt"
+dynamic = ["version"]
+requires-python = ">=3.10"
+# 只声明宿主未提供、且插件真正需要的依赖。
+# mutagen 与 pycryptodome 已是 MoviePilot 主程序的核心依赖，无需重复声明。
+dependencies = [
+    "wasmtime>=14.0",
+]

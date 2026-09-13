@@ -1,0 +1,158 @@
+{
+  "Aria2Downloader": {
+    "name": "Aria2 下载器",
+    "description": "纯发送型下载器：触发下载时把链接/种子发给 Aria2，并提供下载记录面板查看进度（不后台轮询）。",
+    "labels": "下载器",
+    "version": "1.3.0",
+    "icon": "Moviepilot_A.png",
+    "author": "your-name",
+    "level": 1,
+    "history": {
+      "v1.3.0": "首次发布。"
+    }
+  },
+  "BlockSystemCommands": {
+    "name": "系统命令屏蔽",
+    "description": "屏蔽指定的系统命令，防止误操作",
+    "labels": "工具,命令",
+    "version": "1.0",
+    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布。"
+    }
+  },
+  "CASTaskCleaner": {
+    "name": "CAS任务清理",
+    "description": "自动清理《天翼云盘自动转存》中已完成任务，并通知追剧进度。仅支持EMBY媒体服务器。",
+    "labels": "工具,CAS,Emby",
+    "version": "2.5",
+    "icon": "cloud189.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v2.5": "首次发布。"
+    }
+  },
+  "CommandHelper": {
+    "name": "命令帮助",
+    "description": "显示所有插件的交互命令，帮助用户快速了解可用功能",
+    "labels": "工具,命令",
+    "version": "1.0",
+    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布。"
+    }
+  },
+  "DisableTasks": {
+    "name": "定时任务禁用",
+    "description": "禁用特定的系统定时任务",
+    "labels": "工具,定时任务",
+    "version": "1.0",
+    "icon": "task.png",
+    "author": "System Monitor",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布。"
+    }
+  },
+  "embysyncdeletioncloud": {
+    "name": "Emby同步删除云盘",
+    "description": "Emby媒体删除时自动删除本地和云盘文件。",
+    "labels": "媒体库,Emby,云盘",
+    "version": "2.1",
+    "icon": "mediasyncdel.png",
+    "author": "gldl",
+    "level": 1,
+    "history": {
+      "v2.1": "首次发布。"
+    }
+  },
+  "MusicFileOrganizer": {
+    "name": "音乐整理",
+    "description": "监控指定目录音频文件，按规则自动整理音乐文件",
+    "labels": "音乐,整理",
+    "version": "1.9",
+    "icon": "music.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v1.9": "首次发布。"
+    }
+  },
+  "MusicScraperHelp": {
+    "name": "音乐刮削助手",
+    "description": "音乐刮削助手，支持自动刮削音乐元数据",
+    "labels": "音乐,刮削",
+    "version": "1.0",
+    "icon": "music.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布。"
+    }
+  },
+  "OpenListDownloader": {
+    "name": "OpenList 自动下载",
+    "description": "定时扫描 OpenList 指定目录的新增文件，通过 Aria2 自动下载到本地。",
+    "labels": "下载器,OpenList",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
+  },
+  "OpenListMonitorHelper": {
+    "name": "OpenList监测助手",
+    "description": "OpenList存储状态监测工具 - 通过API检测存储异常",
+    "labels": "OpenList,监测",
+    "version": "1.0",
+    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
+    "author": "OpenListHelper",
+    "level": 1,
+    "history": {
+      "v1.0": "首次发布。"
+    }
+  },
+  "OpenListUploadHelper": {
+    "name": "OpenList上传助手",
+    "description": "文件上传工具 - 支持本地文件自动上传到OpenList网盘，支持命令交互",
+    "labels": "OpenList,上传",
+    "version": "2.3",
+    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v2.3": "首次发布。"
+    }
+  },
+  "StrmModifier": {
+    "name": "STRM文件转换",
+    "description": "监控STRM文件修改成OpenList地址",
+    "labels": "工具,STRM",
+    "version": "1.2",
+    "icon": "link.png",
+    "author": "gldl",
+    "level": 1,
+    "history": {
+      "v1.2": "首次发布。"
+    }
+  },
+  "XimalayaXMDecrypt": {
+    "name": "喜马拉雅XM解密",
+    "description": "把喜马拉雅下载的 .xm 加密音频批量解密为可播放的音频文件（输入目录 -> 输出目录）。",
+    "labels": "工具,解密,音频",
+    "version": "1.0.0",
+    "icon": "music.png",
+    "author": "Diaoxiaozhang",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
+  }
+}

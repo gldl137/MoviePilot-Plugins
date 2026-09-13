@@ -1,0 +1,55 @@
+
+.dash-page[data-v-78a80bce] {
+  padding: 24px;
+  position: relative;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+}
+.dash-close[data-v-78a80bce] {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+}
+.dash-content[data-v-78a80bce] {
+  flex: 1;
+}
+.dash-hero[data-v-78a80bce] {
+  margin-top: 8px;
+}
+.dash-actions[data-v-78a80bce] {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: 16px;
+}
+.dash-hero-card[data-v-78a80bce] {
+  padding: 24px 16px;
+  text-align: center;
+}
+.dash-hero-icon[data-v-78a80bce] {
+  margin: 0 auto;
+}
+.dash-hero-num[data-v-78a80bce] {
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: rgb(var(--v-theme-primary));
+}
+.dash-sub[data-v-78a80bce] {
+  margin-top: 12px;
+}
+.dash-sub-card[data-v-78a80bce] {
+  padding: 16px;
+  text-align: center;
+}
+.dash-sub-label[data-v-78a80bce] {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-bottom: 6px;
+}
+.dash-sub-num[data-v-78a80bce] {
+  font-size: 24px;
+  font-weight: 700;
+}

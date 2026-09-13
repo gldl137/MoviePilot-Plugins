@@ -1,0 +1,194 @@
+
+.dawn-page[data-v-10b6236e] {
+  padding: 12px;
+}
+.dawn-topbar[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+.dawn-table[data-v-10b6236e] td,
+.dawn-table[data-v-10b6236e] th {
+  vertical-align: middle;
+}
+.dawn-title-cell[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+}
+.dawn-poster[data-v-10b6236e] {
+  width: 38px;
+  height: 56px;
+  flex-shrink: 0;
+  margin-right: 10px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+.dawn-poster__ph[data-v-10b6236e] {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(var(--v-theme-on-surface), 0.4);
+}
+.dawn-title-text[data-v-10b6236e] {
+  display: flex;
+  flex-direction: column;
+}
+.dawn-title-name[data-v-10b6236e] {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.2;
+}
+.dawn-title-sub[data-v-10b6236e] {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 2px;
+}
+.dawn-file-cell[data-v-10b6236e] {
+  max-width: 260px;
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.85);
+  word-break: break-all;
+  line-height: 1.3;
+}
+.dawn-path-cell[data-v-10b6236e] {
+  max-width: 420px;
+}
+.dawn-path-link[data-v-10b6236e] {
+  font-size: 12px;
+  color: rgb(var(--v-theme-primary));
+  text-decoration: none;
+  word-break: break-all;
+  line-height: 1.4;
+  display: inline-flex;
+  align-items: flex-start;
+}
+.dawn-path-link[data-v-10b6236e]:hover {
+  text-decoration: underline;
+}
+.dawn-path-text[data-v-10b6236e] {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  word-break: break-all;
+  line-height: 1.3;
+}
+.dawn-footer[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.dawn-footer__total[data-v-10b6236e] {
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.dawn-footer__pager[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dawn-ellipsis[data-v-10b6236e] {
+  padding: 0 6px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+/* 移动端卡片列表 */
+.dawn-mobile[data-v-10b6236e] {
+  padding-top: 4px;
+}
+.dawn-mobile-card[data-v-10b6236e] {
+  padding: 12px;
+}
+.dawn-mobile-header[data-v-10b6236e] {
+  display: flex;
+  align-items: flex-start;
+}
+.dawn-mobile-poster[data-v-10b6236e] {
+  position: relative;
+  width: 64px;
+  height: 90px;
+  flex-shrink: 0;
+  margin-right: 12px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+.dawn-mobile-poster[data-v-10b6236e] .v-img__img--cover {
+  object-fit: cover;
+}
+.dawn-mobile-poster__overlay[data-v-10b6236e] {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.dawn-mobile-titles[data-v-10b6236e] {
+  flex: 1;
+  min-width: 0;
+}
+.dawn-mobile-title[data-v-10b6236e] {
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.25;
+}
+.dawn-mobile-sub[data-v-10b6236e] {
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  margin-top: 2px;
+}
+.dawn-mobile-meta[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.dawn-mobile-size[data-v-10b6236e],
+.dawn-mobile-time[data-v-10b6236e] {
+  white-space: nowrap;
+}
+.dawn-mobile-dot[data-v-10b6236e] {
+  opacity: 0.5;
+}
+.dawn-mobile-right[data-v-10b6236e] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  margin-left: 4px;
+}
+.dawn-mobile-paths[data-v-10b6236e] {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dawn-mobile-path-row[data-v-10b6236e] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.dawn-mobile-path-tag[data-v-10b6236e] {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-primary), 0.08);
+  color: rgb(var(--v-theme-primary));
+  font-size: 11px;
+  font-weight: 600;
+}
+.dawn-mobile-page[data-v-10b6236e] {
+  font-size: 13px;
+  padding: 0 8px;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
