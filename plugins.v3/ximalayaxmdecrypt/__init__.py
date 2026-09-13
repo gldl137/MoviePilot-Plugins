@@ -39,6 +39,12 @@ MAX_LOG_LINES = 400
 # 喜马拉雅 XM 解密使用的固定 AES-256 密钥
 XM_AES_KEY = b"ximalayaximalayaximalayaximalaya"
 
+# 插件中文名与简介：配置页、详情页、插件列表统一引用这里，避免各处写死不一致
+PLUGIN_NAME = "喜马拉雅XM解密"
+PLUGIN_DESC = (
+    "把喜马拉雅下载的 .xm 加密音频批量解密为可播放的音频文件（输入目录 → 输出目录）。"
+)
+
 # 输出文件名中需要替换掉的非法字符
 _INVALID_CHARS = ("/", "\\", ":", "*", "?", '"', "<", ">", "|")
 
@@ -524,8 +530,8 @@ class XimalayaXMDecrypt(_PluginBase):
     """喜马拉雅 XM 批量解密插件。"""
 
     # ---- 插件元信息 ----
-    plugin_name = "喜马拉雅XM解密"
-    plugin_desc = "把喜马拉雅下载的 .xm 加密音频批量解密为可播放的音频文件（输入目录 -> 输出目录）。"
+    plugin_name = PLUGIN_NAME
+    plugin_desc = PLUGIN_DESC
     plugin_icon = "music.png"
     plugin_version = "1.0.0"
     plugin_author = "Diaoxiaozhang"
@@ -605,6 +611,16 @@ class XimalayaXMDecrypt(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "density": "compact",
+                            "class": "mb-3",
+                            "text": f"{PLUGIN_NAME}：{PLUGIN_DESC}",
+                        },
+                    },
                     {
                         "component": "VRow",
                         "content": [
@@ -792,7 +808,16 @@ class XimalayaXMDecrypt(_PluginBase):
                                     {
                                         "component": "VCardTitle",
                                         "props": {"class": "text-h6"},
-                                        "text": "喜马拉雅 XM 解密",
+                                        "text": self.plugin_name,
+                                    },
+                                    {
+                                        "component": "VCardSubtitle",
+                                        "props": {"class": "text-caption text-medium-emphasis"},
+                                        "text": (
+                                            f"v{self.plugin_version}"
+                                            f"　作者：{self.plugin_author}"
+                                            f"　{self.plugin_desc}"
+                                        ),
                                     },
                                     {
                                         "component": "VCardText",
@@ -830,6 +855,11 @@ class XimalayaXMDecrypt(_PluginBase):
                                                         else "依赖检查：wasm 运行时与 mutagen、pycryptodome 均已就绪"
                                                     ),
                                                 },
+                                            },
+                                            {
+                                                "component": "div",
+                                                "props": {"class": "text-subtitle-2 mb-1"},
+                                                "text": "配置概览",
                                             },
                                             {
                                                 "component": "div",
