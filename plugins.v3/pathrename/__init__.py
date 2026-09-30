@@ -62,10 +62,10 @@ class PathRename(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -281,29 +281,31 @@ class PathRename(_PluginBase):
     # ------------------------------------------------------------------ #
     # 事件处理
     # ------------------------------------------------------------------ #
-    @eventmanager.register(ChainEventType.TransferRenameBuild)
-    def on_transfer_rename_build(self, event: Event) -> None:
-        """
-        处理 TransferRenameBuild 事件（渲染前），把命中的标识文字写入
-        rename_dict["pathtag"]，供重命名模板用 {{pathtag}} 引用。
+    # TransferRenameBuild（渲染前写 rename_dict["pathtag"]）作为保底方案：
+    # 不同 MoviePilot 版本事件名可能不同，用 getattr 守卫，避免事件名缺失导致整模块导入失败。
+    if getattr(ChainEventType, "TransferRenameBuild", None) is not None:
 
-        该事件在参考插件 ffprobenamingsupplement 中使用，必定存在，作为保底方案。
-        """
-        if not self._enabled:
-            return
-        data = event.event_data
-        if not data:
-            return
-        source_path = getattr(data, "source_path", None)
-        if not source_path or not str(source_path).strip():
-            return
-        tags = self._match_tags(str(source_path), self._conversion_list)
-        if not tags:
-            return
-        rename_dict = getattr(data, "rename_dict", None)
-        if isinstance(rename_dict, dict):
-            rename_dict["pathtag"] = " ".join(tags)
-            logger.info("【路径重命名】已写入 pathtag：%s", rename_dict["pathtag"])
+        @eventmanager.register(ChainEventType.TransferRenameBuild)
+        def on_transfer_rename_build(self, event: Event) -> None:
+            """
+            处理 TransferRenameBuild 事件（渲染前），把命中的标识文字写入
+            rename_dict["pathtag"]，供重命名模板用 {{pathtag}} 引用。
+            """
+            if not self._enabled:
+                return
+            data = event.event_data
+            if not data:
+                return
+            source_path = getattr(data, "source_path", None)
+            if not source_path or not str(source_path).strip():
+                return
+            tags = self._match_tags(str(source_path), self._conversion_list)
+            if not tags:
+                return
+            rename_dict = getattr(data, "rename_dict", None)
+            if isinstance(rename_dict, dict):
+                rename_dict["pathtag"] = " ".join(tags)
+                logger.info("【路径重命名】已写入 pathtag：%s", rename_dict["pathtag"])
 
     # TransferRename（渲染后改写文件名，自动追加）仅在当前版本存在该事件时才注册，
     # 用 getattr 守卫，避免事件名缺失导致整个模块在类定义期导入失败。
