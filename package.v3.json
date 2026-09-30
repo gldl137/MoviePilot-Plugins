@@ -131,6 +131,18 @@
       "v1.0.0": "首次发布。"
     }
   },
+  "PathRename": {
+    "name": "路径重命名",
+    "description": "根据源文件路径中的目录关键词，自动在整理后的文件名中追加网盘/来源标识文字，例如路径含「CAS Pro」则在文件名追加「天翼网盘」。",
+    "labels": "工具,重命名",
+    "version": "1.0.0",
+    "icon": "link.png",
+    "author": "gldl137",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
+  },
   "StrmModifier": {
     "name": "STRM文件转换",
     "description": "监控STRM文件修改成OpenList地址",
