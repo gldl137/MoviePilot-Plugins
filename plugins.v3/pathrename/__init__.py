@@ -3,7 +3,10 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.plugins import _PluginBase
 from app.core.event import Event, eventmanager
 from app.log import logger
-from app.schemas.types import ChainEventType
+try:
+    from app.schemas.types import ChainEventType
+except ImportError:  # 兼容没有链式事件的版本：导入失败不让整模块挂掉
+    ChainEventType = None
 
 
 class PathRename(_PluginBase):
@@ -21,7 +24,7 @@ class PathRename(_PluginBase):
     # 插件图标
     plugin_icon = "link.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
