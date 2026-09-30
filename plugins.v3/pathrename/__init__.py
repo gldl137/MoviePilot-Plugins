@@ -1,8 +1,15 @@
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.plugins import _PluginBase
-from app.core.event import Event, eventmanager
-from app.log import logger
+
+# V3 规范：新插件统一使用 app.sdk 稳定入口；旧宿主回退到兼容路径
+try:
+    from app.sdk.events import Event, eventmanager
+    from app.sdk.logging import logger
+except ImportError:  # 兼容尚未提供 app.sdk 的旧宿主
+    from app.core.event import Event, eventmanager
+    from app.log import logger
+
 try:
     from app.schemas.types import ChainEventType
 except ImportError:  # 兼容没有链式事件的版本：导入失败不让整模块挂掉
@@ -24,7 +31,7 @@ class PathRename(_PluginBase):
     # 插件图标
     plugin_icon = "link.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
