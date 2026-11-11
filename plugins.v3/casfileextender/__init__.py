@@ -25,10 +25,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
-    # V3 稳定入口；顶层只依赖 app.sdk.*
-    from app.sdk.plugin import _PluginBase
-except ImportError:  # 兼容仅提供旧公开入口的宿主
-    from app.plugins import _PluginBase  # type: ignore
+    # 新版宿主：base 模块（app.plugins._PluginBase 会映射到此处）
+    from app.sdk.plugin.base import _PluginBase
+except ImportError:
+    try:
+        from app.sdk.plugin import _PluginBase
+    except ImportError:
+        from app.plugins import _PluginBase  # type: ignore
 
 
 # ------------------------------------------------------------------
@@ -459,6 +462,19 @@ class CasFileExtender(_PluginBase):
     # ------------------------------------------------------------------
     # 插件 API
     # ------------------------------------------------------------------
+    def get_state(self) -> Dict[str, Any]:
+        """返回插件运行状态（满足宿主基类抽象方法要求）。"""
+        with self._log_lock:
+            lines = list(self._logs)
+        return {
+            "enabled": self._enabled,
+            "refresh_native_monitor": self._cfg_bool("refresh_native_monitor"),
+            "exts": self._exts(),
+            "worker_alive": bool(self._thread and self._thread.is_alive()),
+            "last_scan": self._last_scan,
+            "logs": lines,
+        }
+
     def get_api(self) -> List[Dict[str, Any]]:
         """注册详情页使用的后端接口。"""
         prefix = self.__class__.__name__
