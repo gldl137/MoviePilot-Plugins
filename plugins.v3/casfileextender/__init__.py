@@ -50,18 +50,58 @@ def _inject_media_ext() -> bool:
     """
     settings = _load_settings()
     if settings is None:
+        logger.warning("CAS视频扩展：未定位到 settings，白名单注入失败（宿主导入路径可能变更）")
         return False
     ext = f".{DEFAULT_EXT}"
     exts = getattr(settings, "RMT_MEDIAEXT", None)
-    if isinstance(exts, list):
-        if ext not in exts:
-            exts.append(ext)
-        return True
-    return False
+    if not isinstance(exts, list):
+        logger.warning(f"CAS视频扩展：RMT_MEDIAEXT 不是列表（实际 {type(exts)}），注入失败")
+        return False
+    if ext not in exts:
+        exts.append(ext)
+        logger.info(f"CAS视频扩展：已将 {ext} 注入视频白名单 RMT_MEDIAEXT")
+    else:
+        logger.info(f"CAS视频扩展：视频白名单已含 {ext}")
+    return True
 
 
-# 模块加载即注入：宿主重新加载插件后白名单立即生效，不依赖是否重新初始化
+def _patch_transfer_chain() -> None:
+    """
+    双保险：即使白名单注入未生效，也让整理链把 .cas 视为视频文件。
+
+    - 补全 fileitem.extension（手动整理前端可能未传 extension，导致
+      _is_media_file 在 `if not fileitem.extension` 处直接返回 False）；
+    - 对 .cas 后缀直接放行。
+    """
+    try:
+        from pathlib import Path as _Path
+        from app.chain.transfer import TransferChain
+
+        original = TransferChain._is_media_file
+        if getattr(original, "_cas_patched", False):
+            return
+
+        def _patched(self, fileitem, mtype=None):
+            if fileitem is not None and not fileitem.extension:
+                name = fileitem.name or (fileitem.path or "")
+                suffix = _Path(name).suffix
+                if suffix:
+                    fileitem.extension = suffix[1:]
+            if (fileitem is not None and fileitem.extension
+                    and fileitem.extension.lower() == DEFAULT_EXT):
+                return True
+            return original(self, fileitem, mtype)
+
+        _patched._cas_patched = True
+        TransferChain._is_media_file = _patched
+        logger.info("CAS视频扩展：已为整理链 _is_media_file 打补丁（.cas 直接放行）")
+    except Exception as err:
+        logger.warning(f"CAS视频扩展：整理链打补丁失败：{err}")
+
+
+# 模块加载即生效：宿主重新加载插件后白名单与补丁立即生效，不依赖是否重新初始化
 _inject_media_ext()
+_patch_transfer_chain()
 
 
 class CasFileExtender(_PluginBase):
