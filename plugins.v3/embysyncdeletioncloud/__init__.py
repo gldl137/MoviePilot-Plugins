@@ -12,22 +12,22 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from app import schemas
 from app.chain.transfer import TransferChain
-from app.core.config import settings
-from app.core.context import MediaInfo
-from app.core.event import Event, eventmanager
-from app.core.metainfo import MetaInfo
-from app.db.downloadhistory_oper import DownloadHistoryOper
+from app.runtime.config import settings
+from app.schemas.context import MediaInfo, MetaInfo
+from app.schemas.event import Event
+from app.runtime.events import eventmanager
+from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.models.transferhistory import TransferHistory
-from app.db.transferhistory_oper import TransferHistoryOper
-from app.helper.downloader import DownloaderHelper
-from app.helper.mediaserver import MediaServerHelper
+from app.db.oper.transferhistory import TransferHistoryOper
+from app.application.downloader import DownloaderHelper
+from app.application.mediaserver import MediaServerHelper
 from app.log import logger
-from app.plugins import _PluginBase
-from app.schemas import WebhookEventInfo
+from app.sdk.plugin.base import _PluginBase
+from app.schemas.mediaserver import WebhookEventInfo
 from app.schemas.types import (EventType, MediaImageType, MediaSource,
                                MediaType, NotificationType)
-from app.utils.http import RequestUtils
-from app.utils.system import SystemUtils
+from app.adapters.network.http import RequestUtils
+from app.adapters.system.host import SystemUtils
 from apscheduler.schedulers.background import BackgroundScheduler
 
 
@@ -1330,7 +1330,7 @@ class embysyncdeletioncloud(_PluginBase):
 
         try:
             # 创建MetaInfo对象
-            meta = MetaInfo(item_name)
+            meta = MetaInfo(title=item_name)
             # 确定媒体类型
             # 正确处理MediaType对象
             media_type_str = str(media_type).lower() if media_type else ""
@@ -1346,7 +1346,7 @@ class embysyncdeletioncloud(_PluginBase):
                 logger.warning("_transferchain 未初始化，无法识别媒体信息")
                 return None
             mediainfo: MediaInfo = self._transferchain.recognize_media(
-                meta=meta, tmdbid=tmdb_id, mtype=mtype)
+                meta=meta, media_id=tmdb_id, mtype=mtype)
             if mediainfo:
                 logger.info(f"成功识别媒体: {mediainfo.title} ({mediainfo.year})")
                 return mediainfo
@@ -1490,7 +1490,7 @@ class embysyncdeletioncloud(_PluginBase):
             msg = f"电影 {media_name} {tmdb_id}"
             logger.debug(f"查询电影转移记录: {msg}")
             transfer_history: List[TransferHistory] = self._transferhis.get_by(
-                media_id=tmdb_id, media_source=MediaSource.TMDB, mtype=mtype.value, dest=media_path
+                media_id=tmdb_id, media_source=MediaSource.TMDB, mtype=mtype.value
             )
             logger.debug(f"查询到 {len(transfer_history)} 条电影转移记录")
         # 查询电视剧
@@ -1529,7 +1529,6 @@ class embysyncdeletioncloud(_PluginBase):
                 mtype=mtype.value,
                 season=f"S{season_num}",
                 episode=f"E{episode_num}",
-                dest=media_path,
             )
             logger.debug(f"查询到 {len(transfer_history)} 条剧集集转移记录")
         else:
@@ -1852,7 +1851,7 @@ class embysyncdeletioncloud(_PluginBase):
             # 安全检查：确保当前转移记录的标题包含要删除的媒体名称，防止误删
             if title not in media_name:
                 logger.warn(
-                    f"当前转移记录 {transferhis.id} {title} {transferhis.tmdbid} 与删除媒体{media_name}不符，防误删，暂不自动删除"
+                    f"当前转移记录 {transferhis.id} {title} {transferhis.media_id} 与删除媒体{media_name}不符，防误删，暂不自动删除"
                 )
                 continue
             # 保存媒体图片和年份信息，用于后续通知
@@ -3527,7 +3526,7 @@ class embysyncdeletioncloud(_PluginBase):
     # ==================== 通知年份处理 ====================
     def _format_notify_title(self, media_type, title, year, season_num=None, episode_num=None, local_del_result=None, cas_result=None):
         try:
-            meta = MetaInfo(title)
+            meta = MetaInfo(title=title)
             pure_title = meta.title or title
             pure_year = meta.year or year
         except Exception:
@@ -4226,7 +4225,9 @@ class embysyncdeletioncloud(_PluginBase):
 
     # ==================== 不能删除 无法进入设置界面 ====================
     def get_state(self):
-        return self._enabled
+        return {
+            "enabled": bool(self._enabled),
+        }
 
     # ==================== 设置界面 ====================
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
