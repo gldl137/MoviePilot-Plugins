@@ -198,37 +198,8 @@ class CasFileExtender(_PluginBase):
         ], {"enabled": False}
 
     def get_page(self) -> Optional[List[dict]]:
-        """插件无独立功能页，返回状态说明卡片（避免空白详情页）。"""
-        status = "已启用" if self._enabled else "未启用"
-        return [
-            {
-                "component": "VCard",
-                "props": {"variant": "tonal", "color": "primary"},
-                "content": [
-                    {
-                        "component": "VCardText",
-                        "content": [
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "info",
-                                    "variant": "tonal",
-                                    "text": "本插件会自动把 .cas 当作视频文件识别，无需额外配置。",
-                                },
-                            },
-                            {
-                                "component": "VAlert",
-                                "props": {
-                                    "type": "success" if self._enabled else "warning",
-                                    "variant": "tonal",
-                                    "text": f"当前状态：{status}。如需启用或停用，请点击右下角齿轮进入设置。",
-                                },
-                            },
-                        ],
-                    }
-                ],
-            }
-        ]
+        """无自定义详情页（与系统命令屏蔽一致：点击卡片直接进设置）。"""
+        return None
 
     def get_api(self) -> List[Dict[str, Any]]:
         return []
