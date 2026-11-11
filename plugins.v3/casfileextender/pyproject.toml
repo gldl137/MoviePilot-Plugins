@@ -1,0 +1,17 @@
+[project]
+name = "moviepilot-plugin-casfileextender"
+version = "1.0.0"
+description = "把 .cas 等扩展名注册为 MoviePilot 视频媒体并主动扫描整理"
+requires-python = ">=3.10"
+authors = [
+    { name = "gldl137" },
+]
+
+# 本插件仅调用 MoviePilot 核心（app.runtime.config / app.chain.transfer /
+# app.schemas.workflow），不引入任何第三方包，因此 dependencies 为空，
+# 宿主安装时显示「依赖已满足，无需安装」，不会触发编译/下载失败。
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/gldl137/MoviePilot-Plugins"
+Homepage = "https://github.com/gldl137/MoviePilot-Plugins"

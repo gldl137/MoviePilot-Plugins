@@ -1,0 +1,25 @@
+[project]
+name = "moviepilot-plugin-tgarchivegrabber"
+dynamic = ["version"]
+requires-python = ">=3.10"
+authors = [
+    { name = "gldl137" },
+]
+# 只声明宿主未提供、且插件真正需要的依赖：
+# telethon     - Telegram 用户账号（MTProto）客户端，用户账号模式必需
+# python-socks - Telethon 的代理软依赖！缺失时 Telethon 只打一行 UserWarning 就丢掉
+#               proxy 参数直连，机房/国内环境表现为「代理配了却一直连接超时」；
+#               3.x 改了 python_socks.async_ 模块路径，Telethon 1.4x 仍按 2.x 接口导入，故锁 <3
+# pyzipper    - 解压 AES 加密 ZIP
+# 注意：不声明 py7zr！它依赖 pyppmd，而 pyppmd 在 Python 3.14 上无预编译 wheel，
+#       无 gcc 的宿主环境会编译失败导致整包安装中断；.7z 改走系统 7z 命令（与 RAR 同策略）。
+# RAR / 7z / 分卷包使用系统 unar、unrar、7z 或 bsdtar（官方 Docker 镜像内置 unar）
+dependencies = [
+    "telethon>=1.36.0",
+    "python-socks[asyncio]>=2.4.4,<3",
+    "pyzipper>=0.3,<1",
+]
+
+[project.urls]
+Repository = "https://github.com/gldl137/MoviePilot-Plugins"
+Homepage = "https://github.com/gldl137/MoviePilot-Plugins"
