@@ -109,7 +109,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别（无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.21"
+    plugin_version = "1.22"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -199,7 +199,7 @@ class CasFileExtender(_PluginBase):
 
     def get_page(self) -> Optional[List[dict]]:
         """无自定义详情页（与系统命令屏蔽一致：点击卡片直接进设置）。"""
-        return None
+        pass
 
     def get_api(self) -> List[Dict[str, Any]]:
         return []
