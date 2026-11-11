@@ -11,7 +11,7 @@ CAS视频扩展（CasFileExtender）
 这样本地目录监控 / 远程轮询监控立即把 .cas 当视频识别、走整理链，
 无需重启、不改核心配置。无自带扫描、无通知、无定时任务、无整理参数。
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.log import logger
 
@@ -109,7 +109,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别（无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.21"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -196,6 +196,39 @@ class CasFileExtender(_PluginBase):
                 ],
             }
         ], {"enabled": False}
+
+    def get_page(self) -> Optional[List[dict]]:
+        """插件无独立功能页，返回状态说明卡片（避免空白详情页）。"""
+        status = "已启用" if self._enabled else "未启用"
+        return [
+            {
+                "component": "VCard",
+                "props": {"variant": "tonal", "color": "primary"},
+                "content": [
+                    {
+                        "component": "VCardText",
+                        "content": [
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "info",
+                                    "variant": "tonal",
+                                    "text": "本插件会自动把 .cas 当作视频文件识别，无需额外配置。",
+                                },
+                            },
+                            {
+                                "component": "VAlert",
+                                "props": {
+                                    "type": "success" if self._enabled else "warning",
+                                    "variant": "tonal",
+                                    "text": f"当前状态：{status}。如需启用或停用，请点击右下角齿轮进入设置。",
+                                },
+                            },
+                        ],
+                    }
+                ],
+            }
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         return []
