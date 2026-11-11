@@ -55,8 +55,9 @@ class CasFileExtender(_PluginBase):
         try:
             from app.runtime.config import settings
 
-            if DEFAULT_EXT not in settings.RMT_MEDIAEXT:
-                settings.RMT_MEDIAEXT.append(DEFAULT_EXT)
+            ext = f".{DEFAULT_EXT}"  # 白名单与判定均使用带点的扩展名（如 .mkv/.mp4）
+            if ext not in settings.RMT_MEDIAEXT:
+                settings.RMT_MEDIAEXT.append(ext)
             ok = self._refresh_native_monitor()
             self._refreshed = ok
             logger.info(
@@ -81,8 +82,9 @@ class CasFileExtender(_PluginBase):
             if dispatcher is None:
                 return False
             exts = list(getattr(dispatcher, "all_exts", []) or [])
-            if DEFAULT_EXT not in exts:
-                exts.append(DEFAULT_EXT)
+            ext = f".{DEFAULT_EXT}"  # 监控分发器扩展名同样带点
+            if ext not in exts:
+                exts.append(ext)
                 dispatcher.all_exts = exts
             return True
         except Exception as err:
