@@ -28,6 +28,42 @@ __all__ = ["CasFileExtender"]
 DEFAULT_EXT = "cas"
 
 
+def _load_settings():
+    """兼容不同宿主版本的 settings 导入路径。"""
+    try:
+        from app.runtime.config import settings
+        return settings
+    except Exception:
+        try:
+            from app.core.config import settings  # type: ignore
+            return settings
+        except Exception:
+            return None
+
+
+def _inject_media_ext() -> bool:
+    """
+    把带点的 .cas 注入 settings.RMT_MEDIAEXT。
+
+    白名单默认值为带点格式（.mp4/.mkv 等），且 _is_media_file 判定使用
+    f".{extension}" 拼点匹配，因此必须注入带点的 ".cas"。
+    """
+    settings = _load_settings()
+    if settings is None:
+        return False
+    ext = f".{DEFAULT_EXT}"
+    exts = getattr(settings, "RMT_MEDIAEXT", None)
+    if isinstance(exts, list):
+        if ext not in exts:
+            exts.append(ext)
+        return True
+    return False
+
+
+# 模块加载即注入：宿主重新加载插件后白名单立即生效，不依赖是否重新初始化
+_inject_media_ext()
+
+
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
@@ -53,11 +89,7 @@ class CasFileExtender(_PluginBase):
     def _refresh(self) -> bool:
         """把 .cas 注入白名单并刷新原生监控分发器。"""
         try:
-            from app.runtime.config import settings
-
-            ext = f".{DEFAULT_EXT}"  # 白名单与判定均使用带点的扩展名（如 .mkv/.mp4）
-            if ext not in settings.RMT_MEDIAEXT:
-                settings.RMT_MEDIAEXT.append(ext)
+            _inject_media_ext()
             ok = self._refresh_native_monitor()
             self._refreshed = ok
             logger.info(
