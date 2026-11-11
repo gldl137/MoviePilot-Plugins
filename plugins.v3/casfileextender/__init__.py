@@ -11,7 +11,7 @@ CAS视频扩展（CasFileExtender）
 这样本地目录监控 / 远程轮询监控立即把 .cas 当视频识别、走整理链，
 无需重启、不改核心配置。无自带扫描、无通知、无定时任务、无整理参数。
 """
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from app.log import logger
 
@@ -196,10 +196,6 @@ class CasFileExtender(_PluginBase):
                 ],
             }
         ], {"enabled": False}
-
-    def get_page(self) -> Optional[List[dict]]:
-        """无自定义详情页。"""
-        return None
 
     def get_api(self) -> List[Dict[str, Any]]:
         return []
