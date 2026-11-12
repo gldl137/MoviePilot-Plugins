@@ -1,16 +1,17 @@
 """
 CAS视频扩展（CasFileExtender）
 
-只做一件事：让 MoviePilot 原生目录监控把 .cas 当作视频文件识别。
+让 MoviePilot 把 .cas 当作视频文件识别：
+1. 把 .cas 注入 settings.RMT_MEDIAEXT（影响实时读取扩展名的各处，如扫描、下载判断等）；
+2. 刷新 TransferChain 单例缓存的 _media_exts / _allowed_exts（整理链按此缓存判定媒体类型）；
+3. 刷新 Monitor 单例的 dispatcher.all_exts（目录监控按此过滤并触发整理）。
 
-做法：
-1. 把 .cas 注入 settings.RMT_MEDIAEXT（视频白名单）；
-2. 原地刷新原生目录监控分发器 TransferDispatcher 的 all_exts
-   （共享实例属性，不重建实例、不影响已有监控线程）。
-
-这样本地目录监控 / 远程轮询监控立即把 .cas 当视频识别、走整理链，
-无需重启、不改核心配置。无自带扫描、无通知、无定时任务、无整理参数。
+关键点：TransferChain 与 Monitor 的扩展名都是在实例 __init__ 时一次性算好并缓存的，
+并不会实时读 settings，所以仅修改 settings.RMT_MEDIAEXT 或在类上打补丁都不够，
+必须直接刷新这些已实例化对象的缓存列表。
 """
+import threading
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.log import logger
@@ -45,7 +46,7 @@ def _inject_media_ext() -> bool:
     """
     把带点的 .cas 注入 settings.RMT_MEDIAEXT。
 
-    白名单默认值为带点格式（.mp4/.mkv 等），且 _is_media_file 判定使用
+    白名单默认值为带点格式（.mp4/.mkv 等），且整理链 _is_media_file 判定使用
     f".{extension}" 拼点匹配，因此必须注入带点的 ".cas"。
     """
     settings = _load_settings()
@@ -67,49 +68,75 @@ def _inject_media_ext() -> bool:
 
 def _patch_transfer_chain() -> None:
     """
-    双保险：即使白名单注入未生效，也让整理链把 .cas 视为视频文件。
+    刷新 TransferChain 单例缓存的媒体扩展名，使 .cas 被识别为视频文件。
 
-    - 补全 fileitem.extension（手动整理前端可能未传 extension，导致
-      _is_media_file 在 `if not fileitem.extension` 处直接返回 False）；
-    - 对 .cas 后缀直接放行。
+    TransferChain 是 Singleton，其 _media_exts / _allowed_exts 在 __init__ 时一次性算好，
+    不会实时读 settings，因此必须直接刷新实例缓存。
     """
     try:
-        from pathlib import Path as _Path
         from app.chain.transfer import TransferChain
-
-        original = TransferChain._is_media_file
-        if getattr(original, "_cas_patched", False):
-            return
-
-        def _patched(self, fileitem, mtype=None):
-            if fileitem is not None and not fileitem.extension:
-                name = fileitem.name or (fileitem.path or "")
-                suffix = _Path(name).suffix
-                if suffix:
-                    fileitem.extension = suffix[1:]
-            if (fileitem is not None and fileitem.extension
-                    and fileitem.extension.lower() == DEFAULT_EXT):
-                return True
-            return original(self, fileitem, mtype)
-
-        _patched._cas_patched = True
-        TransferChain._is_media_file = _patched
-        logger.info("CAS视频扩展：已为整理链 _is_media_file 打补丁（.cas 直接放行）")
+        tc = TransferChain()
+        ext = f".{DEFAULT_EXT}"
+        changed = False
+        for attr in ("_media_exts", "_allowed_exts"):
+            cur = list(getattr(tc, attr, []) or [])
+            if ext not in cur:
+                cur.append(ext)
+                setattr(tc, attr, cur)
+                changed = True
+        if changed:
+            logger.info("CAS视频扩展：已将 .cas 注入 TransferChain 媒体扩展名缓存")
+        else:
+            logger.info("CAS视频扩展：TransferChain 媒体扩展名缓存已含 .cas")
     except Exception as err:
-        logger.warning(f"CAS视频扩展：整理链打补丁失败：{err}")
+        logger.warning(f"CAS视频扩展：刷新 TransferChain 失败：{err}")
 
 
-# 模块加载即生效：宿主重新加载插件后白名单与补丁立即生效，不依赖是否重新初始化
-_inject_media_ext()
-_patch_transfer_chain()
+def _refresh_native_monitor() -> bool:
+    """
+    刷新 Monitor 单例的 dispatcher.all_exts，使目录监控把 .cas 当作候选媒体触发整理。
+    返回 True 表示刷新成功（Monitor 已就绪）。
+    """
+    try:
+        from app.foundation.singleton import SingletonClass
+        from app.monitor.monitor import Monitor
+        monitor = SingletonClass.get_existing_instance(Monitor)
+        if not monitor:
+            return False
+        dispatcher = getattr(monitor, "_dispatcher", None)
+        if dispatcher is None:
+            return False
+        ext = f".{DEFAULT_EXT}"
+        exts = list(getattr(dispatcher, "all_exts", []) or [])
+        if ext not in exts:
+            exts.append(ext)
+            dispatcher.all_exts = exts
+            logger.info("CAS视频扩展：已将 .cas 注入目录监控分发器扩展名")
+        else:
+            logger.info("CAS视频扩展：目录监控分发器扩展名已含 .cas")
+        return True
+    except Exception as err:
+        logger.warning(f"CAS视频扩展：刷新分发器失败：{err}")
+        return False
+
+
+def _background_refresh_monitor() -> None:
+    """
+    后台周期刷新 Monitor 分发器扩展名，处理 Monitor 晚于插件启动的情况。
+    最多重试 5 分钟，成功即结束。
+    """
+    for _ in range(150):
+        if _refresh_native_monitor():
+            return
+        time.sleep(2)
 
 
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别（无需重启）。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.22"
+    plugin_version = "1.23"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -117,57 +144,24 @@ class CasFileExtender(_PluginBase):
     auth_level = 1
 
     _enabled: bool = False
-    _refreshed: bool = False
 
     def init_plugin(self, config: dict = None):
         cfg = config or {}
         self._enabled = bool(cfg.get("enabled", False))
-        self._refreshed = False
-        if self._enabled:
-            self._refresh()
-
-    def _refresh(self) -> bool:
-        """把 .cas 注入白名单并刷新原生监控分发器。"""
-        try:
-            _inject_media_ext()
-            ok = self._refresh_native_monitor()
-            self._refreshed = ok
-            logger.info(
-                f"CAS视频扩展：视频白名单已含 .{DEFAULT_EXT}，原生监控刷新{'成功' if ok else '失败'}"
-            )
-            return ok
-        except Exception as err:
-            logger.error(f"CAS视频扩展：刷新失败：{err}")
-            return False
-
-    @staticmethod
-    def _refresh_native_monitor() -> bool:
-        """原地刷新原生目录监控分发器的 all_exts（共享实例，不重建）。"""
-        try:
-            from app.foundation.singleton import SingletonClass
-            from app.monitor.monitor import Monitor
-
-            monitor = SingletonClass.get_existing_instance(Monitor)
-            if not monitor:
-                return False
-            dispatcher = getattr(monitor, "_dispatcher", None)
-            if dispatcher is None:
-                return False
-            exts = list(getattr(dispatcher, "all_exts", []) or [])
-            ext = f".{DEFAULT_EXT}"  # 监控分发器扩展名同样带点
-            if ext not in exts:
-                exts.append(ext)
-                dispatcher.all_exts = exts
-            return True
-        except Exception as err:
-            logger.warning(f"CAS视频扩展：刷新原生监控失败：{err}")
-            return False
+        if not self._enabled:
+            return
+        # 启用时刷新各处扩展名缓存（.cas 识别是全局行为，但受启用开关控制）
+        _inject_media_ext()
+        _patch_transfer_chain()
+        _refresh_native_monitor()
+        # Monitor 可能晚于插件启动，后台重试直到刷新成功
+        threading.Thread(target=_background_refresh_monitor, daemon=True).start()
 
     # ---------------- 宿主基类要求 ----------------
 
     def get_state(self) -> Any:
         """返回插件状态（宿主基类抽象方法）。"""
-        return {"enabled": self._enabled, "refreshed": self._refreshed}
+        return {"enabled": self._enabled}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """仅保留一个启用开关。"""
