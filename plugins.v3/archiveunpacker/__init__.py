@@ -2,8 +2,10 @@
 压缩包自动解压（ArchiveUnpacker）
 
 监控指定目录（递归）中的压缩包，基于**文件变化事件**（与 MoviePilot 目录监控同源的
-watchfiles.LocalDirectoryWatcher 写法）发现新增/修改的压缩包时，自动将其解压到
-「同目录下的 completed 子目录」（自动创建）。
+watchfiles 写法）发现新增/修改的压缩包时，自动将其解压到「同目录下的 completed 子目录」（自动创建）。
+
+默认**扁平化解压**：压缩包内的文件直接提到 completed/ 根下，不保留压缩包内部文件夹层级；
+可在设置里改为「保留目录结构」。
 
 支持格式：
 - zip / tar 系列：使用 Python 标准库，开箱即用；
@@ -14,6 +16,7 @@ watchfiles.LocalDirectoryWatcher 写法）发现新增/修改的压缩包时，�
 - 压缩包扩展名（逗号分隔）
 - 同名文件：跳过 / 覆盖
 - 解压后原压缩包：保留 / 删除
+- 解压结构：仅提取文件(扁平) / 保留目录结构
 - 启动时扫描存量压缩包（默认关）
 """
 import bz2
@@ -61,9 +64,10 @@ def _safe_join(dest: Path, name: str) -> Optional[Path]:
 class ArchiveUnpacker(_PluginBase):
     plugin_name = "压缩包自动解压"
     plugin_desc = ("监控指定目录的压缩包（zip/rar/7z/tar 等），基于文件变化事件自动解压到同目录下的 completed 子目录；"
-                   "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
+                   "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
+                   "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.5"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -76,6 +80,7 @@ class ArchiveUnpacker(_PluginBase):
     _exts: set = set()
     _conflict: str = "skip"
     _keep_archive: str = "keep"
+    _flatten: bool = True
     _scan_existing: bool = False
     _processed: Dict[str, Tuple[int, float]] = {}
     _processing: set = set()
@@ -94,6 +99,7 @@ class ArchiveUnpacker(_PluginBase):
         self._exts = {("." + e.strip().lstrip(".").lower()) for e in exts if e.strip()}
         self._conflict = cfg.get("conflict", "skip")
         self._keep_archive = cfg.get("keep_archive", "keep")
+        self._flatten = str(cfg.get("flatten", "flat")) == "flat"
         self._processed = {}
         self._processing = set()
         self._wf_watch = None
@@ -108,7 +114,8 @@ class ArchiveUnpacker(_PluginBase):
             return
 
         logger.info(f"压缩包自动解压：启用，监控目录配置 {self._monitor_dirs or '（空，将使用 MoviePilot 监控目录）'}，"
-                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}")
+                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}，"
+                    f"结构 {'扁平' if self._flatten else '保留目录'}")
 
         if self._scan_existing:
             threading.Thread(target=self._scan_existing_task, daemon=True).start()
@@ -126,6 +133,7 @@ class ArchiveUnpacker(_PluginBase):
             "archive_exts": ",".join(sorted(e.lstrip('.') for e in self._exts)),
             "conflict": self._conflict,
             "keep_archive": self._keep_archive,
+            "flatten": "flat" if self._flatten else "keepdir",
             "scan_existing": self._scan_existing,
         }
 
@@ -166,18 +174,24 @@ class ArchiveUnpacker(_PluginBase):
                     {
                         "component": "VRow",
                         "content": [
-                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
                                 {"component": "VSelect", "props": {
                                     "model": "conflict", "label": "同名文件",
                                     "items": [
                                         {"title": "跳过已有", "value": "skip"},
                                         {"title": "覆盖已有", "value": "overwrite"}]}}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
                                 {"component": "VSelect", "props": {
                                     "model": "keep_archive", "label": "解压后原压缩包",
                                     "items": [
                                         {"title": "保留", "value": "keep"},
                                         {"title": "删除", "value": "delete"}]}}]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
+                                {"component": "VSelect", "props": {
+                                    "model": "flatten", "label": "解压结构",
+                                    "items": [
+                                        {"title": "仅提取文件(扁平)", "value": "flat"},
+                                        {"title": "保留目录结构", "value": "keepdir"}]}}]},
                         ],
                     },
                 ],
@@ -189,6 +203,7 @@ class ArchiveUnpacker(_PluginBase):
             "archive_exts": DEFAULT_EXTS,
             "conflict": "skip",
             "keep_archive": "keep",
+            "flatten": "flat",
         }
 
     def get_page(self) -> Optional[List[dict]]:
@@ -402,28 +417,39 @@ class ArchiveUnpacker(_PluginBase):
         except OSError:
             pass
 
+    def _member_name(self, arcname: str) -> str:
+        """扁平化时取文件名（不含目录层级），否则保留原相对路径。"""
+        return Path(arcname).name if self._flatten else arcname
+
     def _unpack_zip(self, archive: Path, dest: Path, conflict: str) -> int:
         dest.mkdir(parents=True, exist_ok=True)
         n = 0
         with zipfile.ZipFile(archive) as zf:
             for info in zf.infolist():
-                target = _safe_join(dest, info.filename)
+                arcname = info.filename
+                if info.is_dir():
+                    if not self._flatten:
+                        target = _safe_join(dest, arcname)
+                        if target:
+                            target.mkdir(parents=True, exist_ok=True)
+                    continue
+                rel = self._member_name(arcname)
+                if not rel:
+                    continue
+                target = _safe_join(dest, rel)
                 if target is None:
-                    logger.warning(f"压缩包自动解压：跳过危险路径 {info.filename}")
+                    logger.warning(f"压缩包自动解压：跳过危险路径 {arcname}")
                     continue
                 if target.exists():
                     if conflict == "skip":
                         continue
                     self._remove_target(target)
                 try:
-                    if info.is_dir():
-                        target.mkdir(parents=True, exist_ok=True)
-                    else:
-                        data = zf.read(info)
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        target.write_bytes(data)
+                    data = zf.read(info)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
                 except Exception as err:
-                    logger.warning(f"压缩包自动解压：解压成员失败 {info.filename}: {err}")
+                    logger.warning(f"压缩包自动解压：解压成员失败 {arcname}: {err}")
                     continue
                 n += 1
         return n
@@ -434,27 +460,34 @@ class ArchiveUnpacker(_PluginBase):
         n = 0
         with tarfile.open(archive) as tf:
             for m in tf.getmembers():
-                target = _safe_join(dest, m.name)
+                arcname = m.name
+                if m.isdir():
+                    if not self._flatten:
+                        target = _safe_join(dest, arcname)
+                        if target:
+                            target.mkdir(parents=True, exist_ok=True)
+                    continue
+                if not m.isfile():
+                    continue  # 跳过符号链接等
+                rel = self._member_name(arcname)
+                if not rel:
+                    continue
+                target = _safe_join(dest, rel)
                 if target is None:
-                    logger.warning(f"压缩包自动解压：跳过危险路径 {m.name}")
+                    logger.warning(f"压缩包自动解压：跳过危险路径 {arcname}")
                     continue
                 if target.exists():
                     if conflict == "skip":
                         continue
                     self._remove_target(target)
                 try:
-                    if m.isdir():
-                        target.mkdir(parents=True, exist_ok=True)
-                    elif m.isfile():
-                        f = tf.extractfile(m)
-                        if f is None:
-                            continue
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        target.write_bytes(f.read())
-                    else:
-                        continue  # 跳过符号链接等
+                    f = tf.extractfile(m)
+                    if f is None:
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(f.read())
                 except Exception as err:
-                    logger.warning(f"压缩包自动解压：解压成员失败 {m.name}: {err}")
+                    logger.warning(f"压缩包自动解压：解压成员失败 {arcname}: {err}")
                     continue
                 n += 1
         return n
@@ -475,16 +508,18 @@ class ArchiveUnpacker(_PluginBase):
             logger.warning(f"压缩包自动解压：单文件解压失败 {archive}: {err}")
             return 0
 
-    @staticmethod
-    def _unpack_cmd(archive: Path, dest: Path, conflict: str, kind: str) -> int:
+    def _unpack_cmd(self, archive: Path, dest: Path, conflict: str, kind: str) -> int:
         dest.mkdir(parents=True, exist_ok=True)
+        # 扁平化用 e（不保留路径），保留结构用 x（保留路径）
+        verb = "e" if self._flatten else "x"
         if kind == "rar":
             bin_name = "unrar"
             if shutil.which(bin_name) is None:
                 logger.warning(f"压缩包自动解压：未找到 {bin_name} 命令，跳过 rar：{archive}（请安装 unrar）")
                 return 0
             oflag = "-o+" if conflict == "overwrite" else "-o-"
-            cmd = [bin_name, "x", "-y", oflag, str(archive)]
+            # unrar 在 cwd 内解压；e 命令会扁平化输出所有文件到 cwd
+            cmd = [bin_name, verb, "-y", oflag, str(archive)]
             cwd = str(dest)
         else:
             bin_name = "7z"
@@ -492,7 +527,7 @@ class ArchiveUnpacker(_PluginBase):
                 logger.warning(f"压缩包自动解压：未找到 {bin_name} 命令，跳过 7z：{archive}（请安装 p7zip）")
                 return 0
             aflag = "-aoa" if conflict == "overwrite" else "-aos"
-            cmd = [bin_name, "x", "-y", aflag, str(archive), f"-o{dest}"]
+            cmd = [bin_name, verb, "-y", aflag, str(archive), f"-o{dest}"]
             cwd = None
         try:
             res = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=3600)
