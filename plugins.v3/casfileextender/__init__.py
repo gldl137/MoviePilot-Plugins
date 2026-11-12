@@ -24,36 +24,9 @@ except ImportError:
     except ImportError:  # 兼容旧版宿主
         from app.plugins import _PluginBase  # type: ignore
 
-# 事件相关（用于「存量补扫」命令），防御性导入以兼容不同宿主版本
-try:
-    from app.sdk.events import eventmanager  # type: ignore
-except ImportError:
-    try:
-        from app.core.event import eventmanager  # type: ignore
-    except ImportError:
-        eventmanager = None  # type: ignore
-
-try:
-    from app.schemas.types import EventType  # type: ignore
-except ImportError:
-    try:
-        from app.sdk.events import EventType  # type: ignore
-    except ImportError:
-        EventType = None  # type: ignore
-
 __all__ = ["CasFileExtender"]
 
 DEFAULT_EXT = "cas"
-
-
-def _plugin_action_decorator(func):
-    """
-    兼容不同宿主版本的 PluginAction 事件注册：导入可用时才注册，
-    否则原样返回函数，避免插件在旧宿主上因装饰器失败而无法加载。
-    """
-    if EventType is not None and eventmanager is not None:
-        return eventmanager.register(EventType.PluginAction)(func)
-    return func
 
 
 def _load_settings():
@@ -163,7 +136,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.24"
+    plugin_version = "1.25"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -226,123 +199,7 @@ class CasFileExtender(_PluginBase):
         return []
 
     def get_command(self) -> List[Dict[str, Any]]:
-        if not self._enabled or EventType is None:
-            return []
-        return [{
-            "cmd": "/cas_rescan",
-            "event": EventType.PluginAction,
-            "desc": "存量补扫CAS文件",
-            "category": "插件",
-            "data": {"action": "cas_rescan"}
-        }]
-
-    @_plugin_action_decorator
-    def cas_rescan_action(self, event) -> None:
-        """
-        响应「存量补扫CAS文件」命令：主动遍历监控目录里已存在的 .cas 并提交整理。
-        """
-        if not self._enabled:
-            return
-        data = getattr(event, "event_data", None) or {}
-        if data.get("action") != "cas_rescan":
-            return
-        logger.info("CAS视频扩展：收到存量补扫命令，启动后台补扫")
-        threading.Thread(target=self._do_rescan, daemon=True).start()
-
-    def _do_rescan(self) -> None:
-        """
-        遍历所有本地监控目录，把已存在的 .cas 文件提交整理链。
-        依靠 dispatcher.handle_file 内部的历史去重与 TTL 去重，已整理过的不会重复处理。
-        """
-        from pathlib import Path
-
-        ext = f".{DEFAULT_EXT}"
-        # 1) 取监控目录
-        try:
-            from app.helper.directory import DirectoryHelper
-        except ImportError:
-            try:
-                from app.utils.directory_helper import DirectoryHelper
-            except ImportError:
-                DirectoryHelper = None
-        if DirectoryHelper is None:
-            logger.warning("CAS视频扩展：未定位 DirectoryHelper，补扫终止")
-            return
-        try:
-            dirs = DirectoryHelper().get_download_dirs() or []
-        except Exception as err:
-            logger.error(f"CAS视频扩展：读取监控目录失败：{err}")
-            return
-        if not dirs:
-            logger.info("CAS视频扩展：未找到任何目录监控配置，补扫跳过")
-            return
-
-        # 2) 取 Monitor 分发器（优先走它，复用历史去重）
-        dispatcher = None
-        try:
-            from app.foundation.singleton import SingletonClass
-            from app.monitor.monitor import Monitor
-            monitor = SingletonClass.get_existing_instance(Monitor)
-            if monitor:
-                dispatcher = getattr(monitor, "_dispatcher", None)
-        except Exception:
-            dispatcher = None
-
-        scanned = 0
-        submitted = 0
-        for mon_dir in dirs:
-            mon_path = Path(str(getattr(mon_dir, "download_path", "")))
-            if not mon_path or not mon_path.exists():
-                continue
-            logger.info(f"CAS视频扩展：补扫目录 {mon_path}")
-            for p in mon_path.rglob("*"):
-                try:
-                    if not p.is_file():
-                        continue
-                except OSError:
-                    continue
-                if p.suffix.casefold() != ext.casefold():
-                    continue
-                scanned += 1
-                try:
-                    st = p.stat()
-                    fsize = st.st_size
-                    fmtime = st.st_mtime
-                except OSError:
-                    continue
-                try:
-                    if dispatcher is not None:
-                        ok = dispatcher.handle_file(
-                            storage="local",
-                            event_path=p,
-                            file_size=fsize,
-                            file_modify_time=fmtime,
-                        )
-                    else:
-                        from app.chain.transfer import TransferChain
-                        from app.schemas.types import FileItem
-                        TransferChain().do_transfer(
-                            fileitem=FileItem(
-                                storage="local",
-                                path=str(p),
-                                type="file",
-                                name=p.name,
-                                basename=p.stem,
-                                extension=p.suffix[1:],
-                                size=fsize,
-                                modify_time=fmtime,
-                            ),
-                            mtype=None,
-                        )
-                        ok = True
-                    if ok:
-                        submitted += 1
-                        logger.info(f"CAS视频扩展：已提交补扫 {p}")
-                except Exception as err:
-                    logger.error(f"CAS视频扩展：补扫提交 {p} 失败：{err}")
-
-        logger.info(f"CAS视频扩展：存量补扫完成，扫描 {scanned} 个 .cas，"
-                    f"{submitted} 个进入整理链")
+        return []
 
     def get_service(self) -> List[Dict[str, Any]]:
         return []
