@@ -216,14 +216,35 @@ class ArchiveUnpacker(_PluginBase):
         }
 
     def get_page(self) -> Optional[List[dict]]:
-        headers = [
-            {"title": "时间", "key": "time", "width": "170px"},
-            {"title": "压缩包", "key": "archive"},
-            {"title": "状态", "key": "status", "width": "90px"},
-            {"title": "条目", "key": "count", "width": "80px"},
-            {"title": "说明", "key": "message"},
-        ]
         items = self._history if isinstance(getattr(self, "_history", None), list) else []
+        head = ["时间", "压缩包", "状态", "条目", "说明"]
+        rows = [{
+            "component": "VTableRow",
+            "content": [
+                {"component": "VTableCell", "props": {"class": "font-weight-bold"}, "content": h}
+                for h in head
+            ],
+        }]
+        for it in items:
+            rows.append({
+                "component": "VTableRow",
+                "content": [
+                    {"component": "VTableCell", "content": str(it.get("time", ""))},
+                    {"component": "VTableCell", "content": str(it.get("archive", ""))},
+                    {"component": "VTableCell", "content": str(it.get("status", ""))},
+                    {"component": "VTableCell", "content": str(it.get("count", ""))},
+                    {"component": "VTableCell", "content": str(it.get("message", ""))},
+                ],
+            })
+        if not items:
+            rows.append({
+                "component": "VTableRow",
+                "content": [
+                    {"component": "VTableCell",
+                     "props": {"colspan": 5, "class": "text-center text-medium-emphasis"},
+                     "content": "暂无解压记录（启用后解压成功/失败会记录在此）"},
+                ],
+            })
         return [
             {
                 "component": "VCard",
@@ -235,14 +256,9 @@ class ArchiveUnpacker(_PluginBase):
                 ],
             },
             {
-                "component": "VDataTable",
-                "props": {
-                    "headers": headers,
-                    "items": items,
-                    "itemsPerPage": 20,
-                    "density": "compact",
-                    "hover": True,
-                },
+                "component": "VTable",
+                "props": {"density": "compact", "hover": True},
+                "content": rows,
             },
         ]
 
