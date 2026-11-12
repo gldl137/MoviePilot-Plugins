@@ -221,7 +221,7 @@ class ArchiveUnpacker(_PluginBase):
         rows = [{
             "component": "VTableRow",
             "content": [
-                {"component": "VTableCell", "props": {"class": "font-weight-bold"}, "content": h}
+                {"component": "VTableCell", "props": {"class": "font-weight-bold"}, "text": h}
                 for h in head
             ],
         }]
@@ -229,11 +229,11 @@ class ArchiveUnpacker(_PluginBase):
             rows.append({
                 "component": "VTableRow",
                 "content": [
-                    {"component": "VTableCell", "content": str(it.get("time", ""))},
-                    {"component": "VTableCell", "content": str(it.get("archive", ""))},
-                    {"component": "VTableCell", "content": str(it.get("status", ""))},
-                    {"component": "VTableCell", "content": str(it.get("count", ""))},
-                    {"component": "VTableCell", "content": str(it.get("message", ""))},
+                    {"component": "VTableCell", "text": str(it.get("time", ""))},
+                    {"component": "VTableCell", "text": str(it.get("archive", ""))},
+                    {"component": "VTableCell", "text": str(it.get("status", ""))},
+                    {"component": "VTableCell", "text": str(it.get("count", ""))},
+                    {"component": "VTableCell", "text": str(it.get("message", ""))},
                 ],
             })
         if not items:
@@ -242,7 +242,7 @@ class ArchiveUnpacker(_PluginBase):
                 "content": [
                     {"component": "VTableCell",
                      "props": {"colspan": 5, "class": "text-center text-medium-emphasis"},
-                     "content": "暂无解压记录（启用后解压成功/失败会记录在此）"},
+                     "text": "暂无解压记录（启用后解压成功/失败会记录在此）"},
                 ],
             })
         return [
@@ -250,9 +250,9 @@ class ArchiveUnpacker(_PluginBase):
                 "component": "VCard",
                 "props": {"variant": "tonal", "class": "mb-4"},
                 "content": [
-                    {"component": "VCardTitle", "props": {"class": "text-h6"}, "content": "解压记录"},
+                    {"component": "VCardTitle", "props": {"class": "text-h6"}, "text": "解压记录"},
                     {"component": "VCardText", "props": {"class": "text-medium-emphasis"},
-                     "content": f"共 {len(items)} 条（最多保留 {MAX_RECORDS} 条，最新在上）。未开启「启动时扫描存量」时只统计启用后的解压。"},
+                     "text": f"共 {len(items)} 条（最多保留 {MAX_RECORDS} 条，最新在上）。未开启「启动时扫描存量」时只统计启用后的解压。"},
                 ],
             },
             {
