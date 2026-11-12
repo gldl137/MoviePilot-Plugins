@@ -2,11 +2,8 @@
 压缩包自动解压（ArchiveUnpacker）
 
 监控指定目录（递归）中的压缩包，基于**文件变化事件**（与 MoviePilot 目录监控同源的
-watchfiles）发现新增/修改的压缩包时，自动将其解压到「同目录下的 completed 子目录」（自动创建）。
-
-为什么不用轮询：本插件严格走事件驱动。若你填写的目录被 watchfiles 判定为不可监控
-（某些挂载方式 / 中文路径组合会报 No path was found），插件会自动改用 MoviePilot 目录
-监控配置中对应的父目录作为兜底（依旧是事件驱动，不会退化为轮询）。
+watchfiles.LocalDirectoryWatcher 写法）发现新增/修改的压缩包时，自动将其解压到
+「同目录下的 completed 子目录」（自动创建）。
 
 支持格式：
 - zip / tar 系列：使用 Python 标准库，开箱即用；
@@ -64,10 +61,9 @@ def _safe_join(dest: Path, name: str) -> Optional[Path]:
 class ArchiveUnpacker(_PluginBase):
     plugin_name = "压缩包自动解压"
     plugin_desc = ("监控指定目录的压缩包（zip/rar/7z/tar 等），基于文件变化事件自动解压到同目录下的 completed 子目录；"
-                   "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。"
-                   "纯事件驱动（watchfiles），失败自动改用 MoviePilot 监控目录兜底。")
+                   "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -83,10 +79,9 @@ class ArchiveUnpacker(_PluginBase):
     _scan_existing: bool = False
     _processed: Dict[str, Tuple[int, float]] = {}
     _processing: set = set()
-    _mp_dirs: List[str] = []
-    _fallback_started: set = set()
     _wf_watch = None
     _wf_change = None
+    _wf_filter = None
     _stop_event: Optional[threading.Event] = None
 
     # ---------------- 生命周期 ----------------
@@ -101,10 +96,9 @@ class ArchiveUnpacker(_PluginBase):
         self._keep_archive = cfg.get("keep_archive", "keep")
         self._processed = {}
         self._processing = set()
-        self._mp_dirs = []
-        self._fallback_started = set()
         self._wf_watch = None
         self._wf_change = None
+        self._wf_filter = None
         self._stop_event = threading.Event()
 
         if not self._enabled:
@@ -209,15 +203,16 @@ class ArchiveUnpacker(_PluginBase):
     def get_service(self) -> List[Dict[str, Any]]:
         return []
 
-    # ---------------- 监控（纯事件驱动） ----------------
+    # ---------------- 监控（watchfiles 事件驱动，与 MoviePilot 同款写法） ----------------
     def _monitor_loop(self) -> None:
         try:
-            from watchfiles import Change, watch
+            from watchfiles import Change, DefaultFilter, watch
         except ImportError:
-            logger.error("压缩包自动解压：未安装 watchfiles，无法进行事件监控（本插件不支持轮询，请确认宿主环境）。")
+            logger.error("压缩包自动解压：未安装 watchfiles，无法进行事件监控（请确认宿主环境）。")
             return
         self._wf_watch = watch
         self._wf_change = Change
+        self._wf_filter = DefaultFilter
 
         user_dirs = []
         for d in self._monitor_dirs:
@@ -227,14 +222,11 @@ class ArchiveUnpacker(_PluginBase):
             else:
                 logger.warning(f"压缩包自动解压：监控目录不存在或非目录，已忽略：{d}")
 
-        self._mp_dirs = self._get_mp_dirs()
-
         if user_dirs:
             watch_dirs = user_dirs
-            if self._mp_dirs:
-                logger.info(f"压缩包自动解压：已记录 MoviePilot 监控目录用于兜底：{self._mp_dirs}")
         else:
-            watch_dirs = [Path(m) for m in self._mp_dirs if Path(m).exists()]
+            mp_dirs = self._get_mp_dirs()
+            watch_dirs = [Path(m) for m in mp_dirs if Path(m).exists()]
             if not watch_dirs:
                 logger.warning("压缩包自动解压：未配置监控目录，且未找到 MoviePilot 目录监控配置，无法启动事件监控。"
                                "请在插件卡片填写监控目录，或在 MoviePilot 中配置目录监控。")
@@ -246,57 +238,31 @@ class ArchiveUnpacker(_PluginBase):
             threading.Thread(target=self._watch_one, args=(p,), daemon=True).start()
 
     def _watch_one(self, path: Path) -> None:
+        """按 MoviePilot LocalDirectoryWatcher 的方式监控单个目录（watch(str(path), ...)）。"""
         watch = self._wf_watch
         Change = self._wf_change
+        watch_filter = self._wf_filter
         try:
-            try:
-                gen = watch([path], stop_event=self._stop_event, recursive=True)
-            except TypeError:
-                gen = watch([path], recursive=True)
-            for changes in gen:
+            for changes in watch(
+                str(path),
+                watch_filter=watch_filter() if watch_filter else None,
+                stop_event=self._stop_event,
+                rust_timeout=1000,
+                yield_on_timeout=True,
+                recursive=True,
+                ignore_permission_denied=True,
+            ):
                 if self._stop_event.is_set():
                     break
                 for change, raw in changes:
                     if change in (Change.Added, Change.Modified):
                         self._maybe_handle(Path(raw))
-        except RuntimeError as err:
-            em = str(err)
-            if "no path" in em.lower() or "not found" in em.lower():
-                logger.error(f"压缩包自动解压：watchfiles 无法监控 {path}（该路径在 watchfiles 下可能不兼容）。"
-                             f"尝试改用对应的 MoviePilot 监控目录祖先进行事件监控。")
-                self._fallback_for(path)
-            else:
-                logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
         except Exception as err:
             logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
 
-    def _fallback_for(self, failed: Path) -> None:
-        """用户填写的目录无法被 watchfiles 监控时，尝试改用 MoviePilot 监控目录中它的祖先目录。"""
-        try:
-            failed_res = Path(failed).resolve()
-        except Exception:
-            failed_res = Path(failed)
-        for m in self._mp_dirs:
-            try:
-                mp = Path(m).resolve()
-            except Exception:
-                continue
-            try:
-                failed_res.relative_to(mp)
-            except ValueError:
-                continue
-            if str(mp) in self._fallback_started:
-                return
-            self._fallback_started.add(str(mp))
-            logger.info(f"压缩包自动解压：改用 MoviePilot 监控目录 {mp} 进行事件监控（覆盖 {failed}）")
-            threading.Thread(target=self._watch_one, args=(mp,), daemon=True).start()
-            return
-        logger.error(f"压缩包自动解压：{failed} 无法被 watchfiles 监控，且未找到对应的 MoviePilot 监控目录祖先，"
-                     f"该路径下的压缩包不会被自动解压。可把「监控目录」改为 MoviePilot 目录监控配置中的路径或其父目录。")
-
     @staticmethod
     def _get_mp_dirs() -> List[str]:
-        """获取 MoviePilot 当前配置的目录监控路径（与 MoviePilot 同源，watchfiles 必然可用）。"""
+        """获取 MoviePilot 当前配置的目录监控路径（监控目录留空时使用）。"""
         dirs: List[str] = []
         try:
             from app.helper.directory import DirectoryHelper
@@ -321,7 +287,7 @@ class ArchiveUnpacker(_PluginBase):
 
     def _scan_existing_task(self) -> None:
         logger.info("压缩包自动解压：开始扫描存量压缩包")
-        for base in self._monitor_dirs or self._mp_dirs:
+        for base in self._monitor_dirs or self._get_mp_dirs():
             bp = Path(base)
             if not bp.exists():
                 continue
@@ -343,10 +309,9 @@ class ArchiveUnpacker(_PluginBase):
             st = path.stat()
         except OSError:
             return
-        # 去重：已处理且 size/mtime 未变则跳过，避免重复提交
         prev = self._processed.get(key)
         if prev == (st.st_size, st.st_mtime):
-            return
+            return  # 已处理且未变化
         self._processing.add(key)
         threading.Thread(target=self._run_process, args=(path, key), daemon=True).start()
 

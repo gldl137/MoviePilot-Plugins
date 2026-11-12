@@ -227,12 +227,13 @@
     "name": "压缩包自动解压",
     "description": "监控指定目录的压缩包（zip/rar/7z/tar 等），自动解压到同目录下的 completed 子目录；支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 使用标准库开箱即用，rar/7z 需系统安装 unrar/7z 命令。",
     "labels": "工具,解压,压缩包",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.0.3": "修复监控报 No path was found：改为与 MoviePilot 目录监控一致的 watch(str(path), ...) 调用方式（此前误把目录列表整体当成一个路径传给 watchfiles）。",
       "v1.0.2": "移除轮询模式，改为纯事件驱动（watchfiles）：与 MoviePilot 目录监控同源，填写目录不可监控时自动改用 MoviePilot 监控目录作为兜底，保证只基于文件变化触发解压。",
       "v1.0.1": "新增「监控方式」设置：实时(watchfiles)与轮询；实时模式在 watchfiles 初始化失败（如 No path was found）时自动降级为轮询，提升兼容性。",
       "v1.0.0": "首次发布。"
