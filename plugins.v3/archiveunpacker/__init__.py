@@ -1,22 +1,19 @@
 """
 压缩包自动解压（ArchiveUnpacker）
 
-监控指定目录（递归）中的压缩包，发现新增/修改的压缩包时，自动将其解压到
-「同目录下的 completed 子目录」（自动创建）。
+监控指定目录（递归）中的压缩包，基于**文件变化事件**（与 MoviePilot 目录监控同源的
+watchfiles）发现新增/修改的压缩包时，自动将其解压到「同目录下的 completed 子目录」（自动创建）。
+
+为什么不用轮询：本插件严格走事件驱动。若你填写的目录被 watchfiles 判定为不可监控
+（某些挂载方式 / 中文路径组合会报 No path was found），插件会自动改用 MoviePilot 目录
+监控配置中对应的父目录作为兜底（依旧是事件驱动，不会退化为轮询）。
 
 支持格式：
 - zip / tar 系列：使用 Python 标准库，开箱即用；
 - rar / 7z：调用系统命令 unrar / 7z（需宿主已安装，未安装则跳过并告警）。
 
-监控方式：
-- 实时（watchfiles）：基于文件系统事件，最及时；若 watchfiles 在该路径/宿主上
-  初始化失败（如某些挂载方式、中文路径组合报 No path was found），会自动降级为轮询。
-- 轮询：周期性扫描目录，纯 Python，兼容性好，适合 watchfiles 不可用的环境。
-
 设置项：
-- 监控目录（多行，每行一个，递归监控）
-- 监控方式：实时 / 轮询
-- 轮询间隔（秒，仅轮询模式，默认 30）
+- 监控目录（多行，每行一个；留空则直接使用 MoviePilot 的目录监控路径）
 - 压缩包扩展名（逗号分隔）
 - 同名文件：跳过 / 覆盖
 - 解压后原压缩包：保留 / 删除
@@ -66,11 +63,11 @@ def _safe_join(dest: Path, name: str) -> Optional[Path]:
 
 class ArchiveUnpacker(_PluginBase):
     plugin_name = "压缩包自动解压"
-    plugin_desc = ("监控指定目录的压缩包（zip/rar/7z/tar 等），自动解压到同目录下的 completed 子目录；"
+    plugin_desc = ("监控指定目录的压缩包（zip/rar/7z/tar 等），基于文件变化事件自动解压到同目录下的 completed 子目录；"
                    "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。"
-                   "实时监控（watchfiles）失败会自动降级为轮询。")
+                   "纯事件驱动（watchfiles），失败自动改用 MoviePilot 监控目录兜底。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -84,11 +81,12 @@ class ArchiveUnpacker(_PluginBase):
     _conflict: str = "skip"
     _keep_archive: str = "keep"
     _scan_existing: bool = False
-    _mode: str = "watch"
-    _poll_interval: int = 30
     _processed: Dict[str, Tuple[int, float]] = {}
     _processing: set = set()
-    _poll_started: bool = False
+    _mp_dirs: List[str] = []
+    _fallback_started: set = set()
+    _wf_watch = None
+    _wf_change = None
     _stop_event: Optional[threading.Event] = None
 
     # ---------------- 生命周期 ----------------
@@ -101,36 +99,26 @@ class ArchiveUnpacker(_PluginBase):
         self._exts = {("." + e.strip().lstrip(".").lower()) for e in exts if e.strip()}
         self._conflict = cfg.get("conflict", "skip")
         self._keep_archive = cfg.get("keep_archive", "keep")
-        self._mode = cfg.get("mode", "watch")
-        try:
-            self._poll_interval = max(5, int(cfg.get("poll_interval", 30)))
-        except (TypeError, ValueError):
-            self._poll_interval = 30
         self._processed = {}
         self._processing = set()
-        self._poll_started = False
+        self._mp_dirs = []
+        self._fallback_started = set()
+        self._wf_watch = None
+        self._wf_change = None
         self._stop_event = threading.Event()
 
         if not self._enabled:
-            return
-        if not self._monitor_dirs:
-            logger.warning("压缩包自动解压：未配置监控目录，已跳过启动")
             return
         if not self._exts:
             logger.warning("压缩包自动解压：未配置任何压缩包扩展名，已跳过启动")
             return
 
-        logger.info(f"压缩包自动解压：启用，监控 {len(self._monitor_dirs)} 个目录，"
-                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，"
-                    f"原包 {self._keep_archive}，模式 {self._mode}")
+        logger.info(f"压缩包自动解压：启用，监控目录配置 {self._monitor_dirs or '（空，将使用 MoviePilot 监控目录）'}，"
+                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}")
 
         if self._scan_existing:
             threading.Thread(target=self._scan_existing_task, daemon=True).start()
-
-        if self._mode == "poll":
-            self._ensure_poll()
-        else:
-            threading.Thread(target=self._monitor_loop, daemon=True).start()
+        threading.Thread(target=self._monitor_loop, daemon=True).start()
 
     def stop_service(self):
         if self._stop_event:
@@ -145,8 +133,6 @@ class ArchiveUnpacker(_PluginBase):
             "conflict": self._conflict,
             "keep_archive": self._keep_archive,
             "scan_existing": self._scan_existing,
-            "mode": self._mode,
-            "poll_interval": self._poll_interval,
         }
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -157,16 +143,10 @@ class ArchiveUnpacker(_PluginBase):
                     {
                         "component": "VRow",
                         "content": [
-                            {"component": "VCol", "props": {"cols": 12, "md": 3}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
                                 {"component": "VSwitch", "props": {"model": "enabled", "label": "启用插件"}}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 3}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
                                 {"component": "VSwitch", "props": {"model": "scan_existing", "label": "启动时扫描存量"}}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
-                                {"component": "VSelect", "props": {
-                                    "model": "mode", "label": "监控方式",
-                                    "items": [
-                                        {"title": "实时(watchfiles，失败自动轮询)", "value": "watch"},
-                                        {"title": "轮询(周期性扫描)", "value": "poll"}]}}]},
                         ],
                     },
                     {
@@ -175,21 +155,18 @@ class ArchiveUnpacker(_PluginBase):
                             {"component": "VCol", "props": {"cols": 12}, "content": [
                                 {"component": "VTextarea", "props": {
                                     "model": "monitor_dirs",
-                                    "label": "监控目录（每行一个，递归监控其下所有子目录）",
+                                    "label": "监控目录（每行一个；留空则直接使用 MoviePilot 的目录监控路径）",
                                     "rows": "4"}}]},
                         ],
                     },
                     {
                         "component": "VRow",
                         "content": [
-                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                            {"component": "VCol", "props": {"cols": 12}, "content": [
                                 {"component": "VTextarea", "props": {
                                     "model": "archive_exts",
                                     "label": "压缩包扩展名（逗号分隔）",
                                     "rows": "2"}}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
-                                {"component": "VTextField", "props": {
-                                    "model": "poll_interval", "label": "轮询间隔(秒，仅轮询模式)", "type": "number"}}]},
                         ],
                     },
                     {
@@ -214,10 +191,8 @@ class ArchiveUnpacker(_PluginBase):
         ], {
             "enabled": False,
             "scan_existing": False,
-            "mode": "watch",
             "monitor_dirs": "",
             "archive_exts": DEFAULT_EXTS,
-            "poll_interval": 30,
             "conflict": "skip",
             "keep_archive": "keep",
         }
@@ -234,35 +209,45 @@ class ArchiveUnpacker(_PluginBase):
     def get_service(self) -> List[Dict[str, Any]]:
         return []
 
-    # ---------------- 监控 ----------------
+    # ---------------- 监控（纯事件驱动） ----------------
     def _monitor_loop(self) -> None:
         try:
             from watchfiles import Change, watch
         except ImportError:
-            logger.warning("压缩包自动解压：未安装 watchfiles，自动降级为轮询模式")
-            self._ensure_poll()
+            logger.error("压缩包自动解压：未安装 watchfiles，无法进行事件监控（本插件不支持轮询，请确认宿主环境）。")
             return
+        self._wf_watch = watch
+        self._wf_change = Change
 
-        valid = []
+        user_dirs = []
         for d in self._monitor_dirs:
-            try:
-                rp = Path(d).resolve()
-            except Exception:
-                rp = Path(d)
-            if rp.exists() and rp.is_dir():
-                valid.append(rp)
+            p = Path(d)
+            if p.exists() and p.is_dir():
+                user_dirs.append(p)
             else:
                 logger.warning(f"压缩包自动解压：监控目录不存在或非目录，已忽略：{d}")
-        if not valid:
-            logger.warning("压缩包自动解压：无可用监控目录，自动降级为轮询模式（仍会周期扫描）")
-            self._ensure_poll()
-            return
 
-        logger.info(f"压缩包自动解压：开始实时监控 {valid}")
-        for p in valid:
-            threading.Thread(target=self._watch_one, args=(watch, Change, p), daemon=True).start()
+        self._mp_dirs = self._get_mp_dirs()
 
-    def _watch_one(self, watch, Change, path: Path) -> None:
+        if user_dirs:
+            watch_dirs = user_dirs
+            if self._mp_dirs:
+                logger.info(f"压缩包自动解压：已记录 MoviePilot 监控目录用于兜底：{self._mp_dirs}")
+        else:
+            watch_dirs = [Path(m) for m in self._mp_dirs if Path(m).exists()]
+            if not watch_dirs:
+                logger.warning("压缩包自动解压：未配置监控目录，且未找到 MoviePilot 目录监控配置，无法启动事件监控。"
+                               "请在插件卡片填写监控目录，或在 MoviePilot 中配置目录监控。")
+                return
+            logger.info(f"压缩包自动解压：未配置监控目录，使用 MoviePilot 目录监控路径：{watch_dirs}")
+
+        logger.info(f"压缩包自动解压：开始事件监控 {watch_dirs}")
+        for p in watch_dirs:
+            threading.Thread(target=self._watch_one, args=(p,), daemon=True).start()
+
+    def _watch_one(self, path: Path) -> None:
+        watch = self._wf_watch
+        Change = self._wf_change
         try:
             try:
                 gen = watch([path], stop_event=self._stop_event, recursive=True)
@@ -277,41 +262,66 @@ class ArchiveUnpacker(_PluginBase):
         except RuntimeError as err:
             em = str(err)
             if "no path" in em.lower() or "not found" in em.lower():
-                logger.error(f"压缩包自动解压：watchfiles 无法监控 {path}（该路径在 watchfiles 下可能不兼容，"
-                             f"常见原因：特殊挂载方式或中文路径组合）。已自动降级为轮询模式继续工作；"
-                             f"若希望稳定实时，请在设置里把「监控方式」直接改为「轮询」，"
-                             f"或确认该路径为容器内真实存在的本地目录 / 改用其父目录。")
-                self._ensure_poll()
+                logger.error(f"压缩包自动解压：watchfiles 无法监控 {path}（该路径在 watchfiles 下可能不兼容）。"
+                             f"尝试改用对应的 MoviePilot 监控目录祖先进行事件监控。")
+                self._fallback_for(path)
             else:
                 logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
         except Exception as err:
             logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
 
-    def _ensure_poll(self) -> None:
-        if self._poll_started:
+    def _fallback_for(self, failed: Path) -> None:
+        """用户填写的目录无法被 watchfiles 监控时，尝试改用 MoviePilot 监控目录中它的祖先目录。"""
+        try:
+            failed_res = Path(failed).resolve()
+        except Exception:
+            failed_res = Path(failed)
+        for m in self._mp_dirs:
+            try:
+                mp = Path(m).resolve()
+            except Exception:
+                continue
+            try:
+                failed_res.relative_to(mp)
+            except ValueError:
+                continue
+            if str(mp) in self._fallback_started:
+                return
+            self._fallback_started.add(str(mp))
+            logger.info(f"压缩包自动解压：改用 MoviePilot 监控目录 {mp} 进行事件监控（覆盖 {failed}）")
+            threading.Thread(target=self._watch_one, args=(mp,), daemon=True).start()
             return
-        self._poll_started = True
-        threading.Thread(target=self._poll_loop, daemon=True).start()
+        logger.error(f"压缩包自动解压：{failed} 无法被 watchfiles 监控，且未找到对应的 MoviePilot 监控目录祖先，"
+                     f"该路径下的压缩包不会被自动解压。可把「监控目录」改为 MoviePilot 目录监控配置中的路径或其父目录。")
 
-    def _poll_loop(self) -> None:
-        logger.info(f"压缩包自动解压：轮询模式启动，间隔 {self._poll_interval}s，监控 {self._monitor_dirs}")
-        while not (self._stop_event and self._stop_event.is_set()):
-            for base in self._monitor_dirs:
-                bp = Path(base)
-                if not bp.exists():
-                    continue
-                for p in bp.rglob("*"):
-                    if "completed" in p.parts:
-                        continue
-                    self._maybe_handle(p)
-            if self._stop_event:
-                self._stop_event.wait(self._poll_interval)
-            else:
-                time.sleep(self._poll_interval)
+    @staticmethod
+    def _get_mp_dirs() -> List[str]:
+        """获取 MoviePilot 当前配置的目录监控路径（与 MoviePilot 同源，watchfiles 必然可用）。"""
+        dirs: List[str] = []
+        try:
+            from app.helper.directory import DirectoryHelper
+        except ImportError:
+            try:
+                from app.utils.directory_helper import DirectoryHelper
+            except ImportError:
+                DirectoryHelper = None
+        if DirectoryHelper is None:
+            return dirs
+        try:
+            obj = DirectoryHelper()
+            lst = obj.get_download_dirs() or []
+        except Exception as err:
+            logger.warning(f"压缩包自动解压：读取 MoviePilot 监控目录失败：{err}")
+            return dirs
+        for d in lst:
+            p = getattr(d, "download_path", None) or getattr(d, "path", None)
+            if p:
+                dirs.append(str(p))
+        return dirs
 
     def _scan_existing_task(self) -> None:
         logger.info("压缩包自动解压：开始扫描存量压缩包")
-        for base in self._monitor_dirs:
+        for base in self._monitor_dirs or self._mp_dirs:
             bp = Path(base)
             if not bp.exists():
                 continue
@@ -333,7 +343,7 @@ class ArchiveUnpacker(_PluginBase):
             st = path.stat()
         except OSError:
             return
-        # 轮询模式下去重：已处理且 size/mtime 未变则跳过，避免每轮重复提交
+        # 去重：已处理且 size/mtime 未变则跳过，避免重复提交
         prev = self._processed.get(key)
         if prev == (st.st_size, st.st_mtime):
             return
