@@ -49,6 +49,7 @@ __all__ = ["ArchiveUnpacker"]
 DEFAULT_EXTS = "zip,rar,7z,tar,gz,tgz,bz2,xz"
 TAR_EXTS = (".tar", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz")
 MAX_RECORDS = 300
+DEBOUNCE_SECONDS = 30  # 处理完成后的去抖窗口：避免 watchfiles 对同一拷贝的重复事件反复触发；窗口之外（如重新拷入）会再次处理
 
 
 def _safe_join(dest: Path, name: str) -> Optional[Path]:
@@ -70,7 +71,7 @@ class ArchiveUnpacker(_PluginBase):
                    "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
                    "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -85,7 +86,7 @@ class ArchiveUnpacker(_PluginBase):
     _keep_archive: str = "keep"
     _flatten: bool = True
     _scan_existing: bool = False
-    _processed: Dict[str, Tuple[int, float]] = {}
+    _processed: Dict[str, float] = {}
     _processing: set = set()
     _history: List[dict] = []
     _wf_watch = None
@@ -407,13 +408,10 @@ class ArchiveUnpacker(_PluginBase):
         key = str(path)
         if key in self._processing:
             return  # 正在处理，避免重复起线程
-        try:
-            st = path.stat()
-        except OSError:
-            return
-        prev = self._processed.get(key)
-        if prev == (st.st_size, st.st_mtime):
-            return  # 已处理且未变化
+        now = time.time()
+        last = self._processed.get(key)
+        if last is not None and now - last < DEBOUNCE_SECONDS:
+            return  # 去抖窗口内，忽略同一拷贝的重复事件（不阻止重新拷入）
         self._processing.add(key)
         threading.Thread(target=self._run_process, args=(path, key), daemon=True).start()
 
@@ -422,21 +420,13 @@ class ArchiveUnpacker(_PluginBase):
             self._process_archive(path)
         finally:
             self._processing.discard(key)
+            self._processed[key] = time.time()  # 记录最近处理时间，仅用于短窗口去抖
 
     # ---------------- 处理单个压缩包 ----------------
     def _process_archive(self, archive: Path) -> None:
         if not self._wait_stable(archive):
             self._record(archive, "跳过", 0, "文件未就绪或已消失")
             return
-        try:
-            st = archive.stat()
-        except OSError:
-            self._record(archive, "跳过", 0, "文件已消失")
-            return
-        key = str(archive)
-        prev = self._processed.get(key)
-        if prev == (st.st_size, st.st_mtime):
-            return  # 已处理过且未变化
 
         dest = archive.parent / "completed"
         logger.info(f"压缩包自动解压：开始处理 {archive} -> {dest}")
@@ -447,7 +437,6 @@ class ArchiveUnpacker(_PluginBase):
             return
 
         logger.info(f"压缩包自动解压：已解出 {count} 项：{archive}")
-        self._processed[key] = (st.st_size, st.st_mtime)
         self._record(archive, "成功", count)
 
         if self._keep_archive == "delete":
