@@ -70,7 +70,7 @@ class ArchiveUnpacker(_PluginBase):
                    "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
                    "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.11"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
