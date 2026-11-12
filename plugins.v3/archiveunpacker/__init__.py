@@ -218,47 +218,61 @@ class ArchiveUnpacker(_PluginBase):
     def get_page(self) -> Optional[List[dict]]:
         items = self._history if isinstance(getattr(self, "_history", None), list) else []
         head = ["时间", "压缩包", "状态", "条目", "说明"]
-        rows = [{
-            "component": "VTableRow",
-            "content": [
-                {"component": "VTableCell", "props": {"class": "font-weight-bold"}, "text": h}
-                for h in head
-            ],
-        }]
+        rows = []
         for it in items:
+            status = str(it.get("status", ""))
+            color = "success" if status == "成功" else ("error" if status == "失败" else "grey")
             rows.append({
-                "component": "VTableRow",
+                "component": "tr",
                 "content": [
-                    {"component": "VTableCell", "text": str(it.get("time", ""))},
-                    {"component": "VTableCell", "text": str(it.get("archive", ""))},
-                    {"component": "VTableCell", "text": str(it.get("status", ""))},
-                    {"component": "VTableCell", "text": str(it.get("count", ""))},
-                    {"component": "VTableCell", "text": str(it.get("message", ""))},
+                    {"component": "td", "props": {"width": "170px"}, "text": str(it.get("time", ""))},
+                    {"component": "td", "text": str(it.get("archive", ""))},
+                    {"component": "td", "props": {"width": "90px"}, "content": [
+                        {"component": "VChip", "props": {"color": color, "size": "small"}, "text": status or "未知"}
+                    ]},
+                    {"component": "td", "props": {"width": "70px"}, "text": str(it.get("count", ""))},
+                    {"component": "td", "text": str(it.get("message", ""))},
                 ],
             })
         if not items:
-            rows.append({
-                "component": "VTableRow",
+            rows = [{
+                "component": "tr",
                 "content": [
-                    {"component": "VTableCell",
-                     "props": {"colspan": 5, "class": "text-center text-medium-emphasis"},
-                     "text": "暂无解压记录（启用后解压成功/失败会记录在此）"},
+                    {"component": "td", "props": {"colspan": 5, "class": "text-center"},
+                     "text": "暂无解压记录（启用后解压成功/失败会记录在此）"}
                 ],
-            })
+            }]
         return [
             {
                 "component": "VCard",
-                "props": {"variant": "tonal", "class": "mb-4"},
+                "props": {"variant": "outlined"},
                 "content": [
-                    {"component": "VCardTitle", "props": {"class": "text-h6"}, "text": "解压记录"},
-                    {"component": "VCardText", "props": {"class": "text-medium-emphasis"},
+                    {"component": "VCardTitle", "text": "解压记录"},
+                    {"component": "VCardText",
                      "text": f"共 {len(items)} 条（最多保留 {MAX_RECORDS} 条，最新在上）。未开启「启动时扫描存量」时只统计启用后的解压。"},
                 ],
             },
             {
-                "component": "VTable",
-                "props": {"density": "compact", "hover": True},
-                "content": rows,
+                "component": "VCard",
+                "props": {"variant": "outlined", "class": "mt-4"},
+                "content": [
+                    {"component": "VCardTitle", "text": "记录列表"},
+                    {"component": "VCardText", "content": [
+                        {
+                            "component": "VTable",
+                            "props": {"density": "compact", "hover": True,
+                                      "fixed-header": True, "height": "600px"},
+                            "content": [
+                                {"component": "thead", "content": [
+                                    {"component": "tr", "content": [
+                                        {"component": "th", "text": h} for h in head
+                                    ]}
+                                ]},
+                                {"component": "tbody", "content": rows},
+                            ],
+                        }
+                    ]},
+                ],
             },
         ]
 
