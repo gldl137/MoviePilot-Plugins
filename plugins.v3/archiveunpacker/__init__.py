@@ -255,7 +255,7 @@ class ArchiveUnpacker(_PluginBase):
                 if self._stop_event.is_set():
                     break
                 for change, raw in changes:
-                    if change in (Change.Added, Change.Modified):
+                    if change in (Change.added, Change.modified):
                         self._maybe_handle(Path(raw))
         except Exception as err:
             logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
