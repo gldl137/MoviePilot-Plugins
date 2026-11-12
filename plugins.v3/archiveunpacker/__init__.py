@@ -122,9 +122,9 @@ class ArchiveUnpacker(_PluginBase):
             logger.warning("压缩包自动解压：未配置任何压缩包扩展名，已跳过启动")
             return
 
-        logger.info(f"压缩包自动解压：启用，监控目录配置 {self._monitor_dirs or '（空，将使用 MoviePilot 监控目录）'}，"
-                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}，"
-                    f"结构 {'扁平' if self._flatten else '保留目录'}")
+        logger.debug(f"压缩包自动解压：启用，监控目录配置 {self._monitor_dirs or '（空，将使用 MoviePilot 监控目录）'}，"
+                     f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}，"
+                     f"结构 {'扁平' if self._flatten else '保留目录'}")
 
         if self._scan_existing:
             threading.Thread(target=self._scan_existing_task, daemon=True).start()
@@ -300,9 +300,9 @@ class ArchiveUnpacker(_PluginBase):
                 logger.warning("压缩包自动解压：未配置监控目录，且未找到 MoviePilot 目录监控配置，无法启动事件监控。"
                                "请在插件卡片填写监控目录，或在 MoviePilot 中配置目录监控。")
                 return
-            logger.info(f"压缩包自动解压：未配置监控目录，使用 MoviePilot 目录监控路径：{watch_dirs}")
+            logger.debug(f"压缩包自动解压：未配置监控目录，使用 MoviePilot 目录监控路径：{watch_dirs}")
 
-        logger.info(f"压缩包自动解压：开始事件监控 {watch_dirs}")
+        logger.debug(f"压缩包自动解压：开始事件监控 {watch_dirs}")
         for p in watch_dirs:
             threading.Thread(target=self._watch_one, args=(p,), daemon=True).start()
 
@@ -355,7 +355,7 @@ class ArchiveUnpacker(_PluginBase):
         return dirs
 
     def _scan_existing_task(self) -> None:
-        logger.info("压缩包自动解压：开始扫描存量压缩包")
+        logger.debug("压缩包自动解压：开始扫描存量压缩包")
         for base in self._monitor_dirs or self._get_mp_dirs():
             bp = Path(base)
             if not bp.exists():
@@ -364,7 +364,7 @@ class ArchiveUnpacker(_PluginBase):
                 if "completed" in p.parts:
                     continue
                 self._maybe_handle(p)
-        logger.info("压缩包自动解压：存量扫描完成")
+        logger.debug("压缩包自动解压：存量扫描完成")
 
     def _maybe_handle(self, path: Path) -> None:
         if not path.is_file():
