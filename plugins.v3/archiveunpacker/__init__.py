@@ -18,6 +18,8 @@ watchfiles 写法）发现新增/修改的压缩包时，自动将其解压到�
 - 解压后原压缩包：保留 / 删除
 - 解压结构：仅提取文件(扁平) / 保留目录结构
 - 启动时扫描存量压缩包（默认关）
+
+详情页展示解压记录（时间/压缩包/状态/条目数），记录持久化保存，最多保留 300 条。
 """
 import bz2
 import gzip
@@ -46,6 +48,7 @@ __all__ = ["ArchiveUnpacker"]
 
 DEFAULT_EXTS = "zip,rar,7z,tar,gz,tgz,bz2,xz"
 TAR_EXTS = (".tar", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz")
+MAX_RECORDS = 300
 
 
 def _safe_join(dest: Path, name: str) -> Optional[Path]:
@@ -67,7 +70,7 @@ class ArchiveUnpacker(_PluginBase):
                    "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
                    "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -84,6 +87,7 @@ class ArchiveUnpacker(_PluginBase):
     _scan_existing: bool = False
     _processed: Dict[str, Tuple[int, float]] = {}
     _processing: set = set()
+    _history: List[dict] = []
     _wf_watch = None
     _wf_change = None
     _wf_filter = None
@@ -102,6 +106,11 @@ class ArchiveUnpacker(_PluginBase):
         self._flatten = str(cfg.get("flatten", "flat")) == "flat"
         self._processed = {}
         self._processing = set()
+        try:
+            hist = self.get_data("unpack_history")
+            self._history = hist if isinstance(hist, list) else []
+        except Exception:
+            self._history = []
         self._wf_watch = None
         self._wf_change = None
         self._wf_filter = None
@@ -207,7 +216,35 @@ class ArchiveUnpacker(_PluginBase):
         }
 
     def get_page(self) -> Optional[List[dict]]:
-        return None
+        headers = [
+            {"title": "时间", "key": "time", "width": "170px"},
+            {"title": "压缩包", "key": "archive"},
+            {"title": "状态", "key": "status", "width": "90px"},
+            {"title": "条目", "key": "count", "width": "80px"},
+            {"title": "说明", "key": "message"},
+        ]
+        items = self._history if isinstance(getattr(self, "_history", None), list) else []
+        return [
+            {
+                "component": "VCard",
+                "props": {"variant": "tonal", "class": "mb-4"},
+                "content": [
+                    {"component": "VCardTitle", "props": {"class": "text-h6"}, "content": "解压记录"},
+                    {"component": "VCardText", "props": {"class": "text-medium-emphasis"},
+                     "content": f"共 {len(items)} 条（最多保留 {MAX_RECORDS} 条，最新在上）。未开启「启动时扫描存量」时只统计启用后的解压。"},
+                ],
+            },
+            {
+                "component": "VDataTable",
+                "props": {
+                    "headers": headers,
+                    "items": items,
+                    "itemsPerPage": 20,
+                    "density": "compact",
+                    "hover": True,
+                },
+            },
+        ]
 
     def get_api(self) -> List[Dict[str, Any]]:
         return []
@@ -217,6 +254,23 @@ class ArchiveUnpacker(_PluginBase):
 
     def get_service(self) -> List[Dict[str, Any]]:
         return []
+
+    # ---------------- 解压记录 ----------------
+    def _record(self, archive: Path, status: str, count: int, message: str = "") -> None:
+        try:
+            if not isinstance(getattr(self, "_history", None), list):
+                self._history = []
+            self._history.insert(0, {
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "archive": archive.name,
+                "status": status,
+                "count": count,
+                "message": message,
+            })
+            self._history = self._history[:MAX_RECORDS]
+            self.save_data("unpack_history", self._history)
+        except Exception as err:
+            logger.warning(f"压缩包自动解压：保存解压记录失败：{err}")
 
     # ---------------- 监控（watchfiles 事件驱动，与 MoviePilot 同款写法） ----------------
     def _monitor_loop(self) -> None:
@@ -339,10 +393,12 @@ class ArchiveUnpacker(_PluginBase):
     # ---------------- 处理单个压缩包 ----------------
     def _process_archive(self, archive: Path) -> None:
         if not self._wait_stable(archive):
+            self._record(archive, "跳过", 0, "文件未就绪或已消失")
             return
         try:
             st = archive.stat()
         except OSError:
+            self._record(archive, "跳过", 0, "文件已消失")
             return
         key = str(archive)
         prev = self._processed.get(key)
@@ -354,10 +410,12 @@ class ArchiveUnpacker(_PluginBase):
         count = self._unpack(archive, dest, self._conflict)
         if count <= 0:
             logger.warning(f"压缩包自动解压：未解出文件（格式不支持/全部跳过/失败）：{archive}")
+            self._record(archive, "失败", 0, "未解出文件（格式不支持/全部跳过/异常）")
             return
 
         logger.info(f"压缩包自动解压：已解出 {count} 项：{archive}")
         self._processed[key] = (st.st_size, st.st_mtime)
+        self._record(archive, "成功", count)
 
         if self._keep_archive == "delete":
             try:
