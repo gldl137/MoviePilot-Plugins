@@ -222,5 +222,18 @@
       "v1.0.1": "移除「试运行」与「清理空目录」功能。",
       "v1.0.0": "首次发布。"
     }
+  },
+  "ArchiveUnpacker": {
+    "name": "压缩包自动解压",
+    "description": "监控指定目录的压缩包（zip/rar/7z/tar 等），自动解压到同目录下的 completed 子目录；支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 使用标准库开箱即用，rar/7z 需系统安装 unrar/7z 命令。",
+    "labels": "工具,解压,压缩包",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "gldl137",
+    "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
+    "level": 1,
+    "history": {
+      "v1.0.0": "首次发布。"
+    }
   }
 }
