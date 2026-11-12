@@ -8,8 +8,15 @@
 - zip / tar 系列：使用 Python 标准库，开箱即用；
 - rar / 7z：调用系统命令 unrar / 7z（需宿主已安装，未安装则跳过并告警）。
 
+监控方式：
+- 实时（watchfiles）：基于文件系统事件，最及时；若 watchfiles 在该路径/宿主上
+  初始化失败（如某些挂载方式、中文路径组合报 No path was found），会自动降级为轮询。
+- 轮询：周期性扫描目录，纯 Python，兼容性好，适合 watchfiles 不可用的环境。
+
 设置项：
 - 监控目录（多行，每行一个，递归监控）
+- 监控方式：实时 / 轮询
+- 轮询间隔（秒，仅轮询模式，默认 30）
 - 压缩包扩展名（逗号分隔）
 - 同名文件：跳过 / 覆盖
 - 解压后原压缩包：保留 / 删除
@@ -60,9 +67,10 @@ def _safe_join(dest: Path, name: str) -> Optional[Path]:
 class ArchiveUnpacker(_PluginBase):
     plugin_name = "压缩包自动解压"
     plugin_desc = ("监控指定目录的压缩包（zip/rar/7z/tar 等），自动解压到同目录下的 completed 子目录；"
-                   "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
+                   "支持同名跳过/覆盖、解压后保留/删除原包。zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。"
+                   "实时监控（watchfiles）失败会自动降级为轮询。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -76,7 +84,11 @@ class ArchiveUnpacker(_PluginBase):
     _conflict: str = "skip"
     _keep_archive: str = "keep"
     _scan_existing: bool = False
+    _mode: str = "watch"
+    _poll_interval: int = 30
     _processed: Dict[str, Tuple[int, float]] = {}
+    _processing: set = set()
+    _poll_started: bool = False
     _stop_event: Optional[threading.Event] = None
 
     # ---------------- 生命周期 ----------------
@@ -89,7 +101,14 @@ class ArchiveUnpacker(_PluginBase):
         self._exts = {("." + e.strip().lstrip(".").lower()) for e in exts if e.strip()}
         self._conflict = cfg.get("conflict", "skip")
         self._keep_archive = cfg.get("keep_archive", "keep")
+        self._mode = cfg.get("mode", "watch")
+        try:
+            self._poll_interval = max(5, int(cfg.get("poll_interval", 30)))
+        except (TypeError, ValueError):
+            self._poll_interval = 30
         self._processed = {}
+        self._processing = set()
+        self._poll_started = False
         self._stop_event = threading.Event()
 
         if not self._enabled:
@@ -102,11 +121,16 @@ class ArchiveUnpacker(_PluginBase):
             return
 
         logger.info(f"压缩包自动解压：启用，监控 {len(self._monitor_dirs)} 个目录，"
-                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，原包 {self._keep_archive}")
+                    f"格式 {sorted(self._exts)}，同名 {self._conflict}，"
+                    f"原包 {self._keep_archive}，模式 {self._mode}")
 
         if self._scan_existing:
             threading.Thread(target=self._scan_existing_task, daemon=True).start()
-        threading.Thread(target=self._monitor_loop, daemon=True).start()
+
+        if self._mode == "poll":
+            self._ensure_poll()
+        else:
+            threading.Thread(target=self._monitor_loop, daemon=True).start()
 
     def stop_service(self):
         if self._stop_event:
@@ -121,6 +145,8 @@ class ArchiveUnpacker(_PluginBase):
             "conflict": self._conflict,
             "keep_archive": self._keep_archive,
             "scan_existing": self._scan_existing,
+            "mode": self._mode,
+            "poll_interval": self._poll_interval,
         }
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
@@ -131,10 +157,16 @@ class ArchiveUnpacker(_PluginBase):
                     {
                         "component": "VRow",
                         "content": [
-                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 3}, "content": [
                                 {"component": "VSwitch", "props": {"model": "enabled", "label": "启用插件"}}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 3}, "content": [
                                 {"component": "VSwitch", "props": {"model": "scan_existing", "label": "启动时扫描存量"}}]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                                {"component": "VSelect", "props": {
+                                    "model": "mode", "label": "监控方式",
+                                    "items": [
+                                        {"title": "实时(watchfiles，失败自动轮询)", "value": "watch"},
+                                        {"title": "轮询(周期性扫描)", "value": "poll"}]}}]},
                         ],
                     },
                     {
@@ -150,11 +182,14 @@ class ArchiveUnpacker(_PluginBase):
                     {
                         "component": "VRow",
                         "content": [
-                            {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
                                 {"component": "VTextarea", "props": {
                                     "model": "archive_exts",
                                     "label": "压缩包扩展名（逗号分隔）",
                                     "rows": "2"}}]},
+                            {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
+                                {"component": "VTextField", "props": {
+                                    "model": "poll_interval", "label": "轮询间隔(秒，仅轮询模式)", "type": "number"}}]},
                         ],
                     },
                     {
@@ -179,8 +214,10 @@ class ArchiveUnpacker(_PluginBase):
         ], {
             "enabled": False,
             "scan_existing": False,
+            "mode": "watch",
             "monitor_dirs": "",
             "archive_exts": DEFAULT_EXTS,
+            "poll_interval": 30,
             "conflict": "skip",
             "keep_archive": "keep",
         }
@@ -202,44 +239,86 @@ class ArchiveUnpacker(_PluginBase):
         try:
             from watchfiles import Change, watch
         except ImportError:
-            logger.error("压缩包自动解压：未安装 watchfiles，无法启动目录监控")
+            logger.warning("压缩包自动解压：未安装 watchfiles，自动降级为轮询模式")
+            self._ensure_poll()
             return
 
-        paths = [p for p in self._monitor_dirs if Path(p).exists()]
-        missing = [p for p in self._monitor_dirs if not Path(p).exists()]
-        if missing:
-            logger.warning(f"压缩包自动解压：以下监控目录不存在，已忽略：{missing}")
-        if not paths:
-            logger.warning("压缩包自动解压：无可用监控目录，监控未启动")
+        valid = []
+        for d in self._monitor_dirs:
+            try:
+                rp = Path(d).resolve()
+            except Exception:
+                rp = Path(d)
+            if rp.exists() and rp.is_dir():
+                valid.append(rp)
+            else:
+                logger.warning(f"压缩包自动解压：监控目录不存在或非目录，已忽略：{d}")
+        if not valid:
+            logger.warning("压缩包自动解压：无可用监控目录，自动降级为轮询模式（仍会周期扫描）")
+            self._ensure_poll()
             return
 
-        logger.info(f"压缩包自动解压：开始监控 {paths}")
+        logger.info(f"压缩包自动解压：开始实时监控 {valid}")
+        for p in valid:
+            threading.Thread(target=self._watch_one, args=(watch, Change, p), daemon=True).start()
+
+    def _watch_one(self, watch, Change, path: Path) -> None:
         try:
             try:
-                gen = watch(paths, stop_event=self._stop_event, recursive=True)
+                gen = watch([path], stop_event=self._stop_event, recursive=True)
             except TypeError:
-                gen = watch(paths, recursive=True)
+                gen = watch([path], recursive=True)
             for changes in gen:
                 if self._stop_event.is_set():
                     break
                 for change, raw in changes:
-                    if change not in (Change.Added, Change.Modified):
-                        continue
-                    self._maybe_handle(Path(raw))
+                    if change in (Change.Added, Change.Modified):
+                        self._maybe_handle(Path(raw))
+        except RuntimeError as err:
+            em = str(err)
+            if "no path" in em.lower() or "not found" in em.lower():
+                logger.error(f"压缩包自动解压：watchfiles 无法监控 {path}（该路径在 watchfiles 下可能不兼容，"
+                             f"常见原因：特殊挂载方式或中文路径组合）。已自动降级为轮询模式继续工作；"
+                             f"若希望稳定实时，请在设置里把「监控方式」直接改为「轮询」，"
+                             f"或确认该路径为容器内真实存在的本地目录 / 改用其父目录。")
+                self._ensure_poll()
+            else:
+                logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
         except Exception as err:
-            logger.error(f"压缩包自动解压：监控异常：{err}")
+            logger.error(f"压缩包自动解压：监控 {path} 异常：{err}")
+
+    def _ensure_poll(self) -> None:
+        if self._poll_started:
+            return
+        self._poll_started = True
+        threading.Thread(target=self._poll_loop, daemon=True).start()
+
+    def _poll_loop(self) -> None:
+        logger.info(f"压缩包自动解压：轮询模式启动，间隔 {self._poll_interval}s，监控 {self._monitor_dirs}")
+        while not (self._stop_event and self._stop_event.is_set()):
+            for base in self._monitor_dirs:
+                bp = Path(base)
+                if not bp.exists():
+                    continue
+                for p in bp.rglob("*"):
+                    if "completed" in p.parts:
+                        continue
+                    self._maybe_handle(p)
+            if self._stop_event:
+                self._stop_event.wait(self._poll_interval)
+            else:
+                time.sleep(self._poll_interval)
 
     def _scan_existing_task(self) -> None:
         logger.info("压缩包自动解压：开始扫描存量压缩包")
         for base in self._monitor_dirs:
-            base_path = Path(base)
-            if not base_path.exists():
+            bp = Path(base)
+            if not bp.exists():
                 continue
-            for p in base_path.rglob("*"):
+            for p in bp.rglob("*"):
                 if "completed" in p.parts:
                     continue
-                if p.is_file() and p.suffix.lower() in self._exts:
-                    self._process_archive(p)
+                self._maybe_handle(p)
         logger.info("压缩包自动解压：存量扫描完成")
 
     def _maybe_handle(self, path: Path) -> None:
@@ -247,7 +326,25 @@ class ArchiveUnpacker(_PluginBase):
             return
         if path.suffix.lower() not in self._exts:
             return
-        threading.Thread(target=self._process_archive, args=(path,), daemon=True).start()
+        key = str(path)
+        if key in self._processing:
+            return  # 正在处理，避免重复起线程
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        # 轮询模式下去重：已处理且 size/mtime 未变则跳过，避免每轮重复提交
+        prev = self._processed.get(key)
+        if prev == (st.st_size, st.st_mtime):
+            return
+        self._processing.add(key)
+        threading.Thread(target=self._run_process, args=(path, key), daemon=True).start()
+
+    def _run_process(self, path: Path, key: str) -> None:
+        try:
+            self._process_archive(path)
+        finally:
+            self._processing.discard(key)
 
     # ---------------- 处理单个压缩包 ----------------
     def _process_archive(self, archive: Path) -> None:
