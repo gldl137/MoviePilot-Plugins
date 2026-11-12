@@ -70,7 +70,7 @@ class ArchiveUnpacker(_PluginBase):
                    "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
                    "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.11"
+    plugin_version = "1.0.12"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -217,7 +217,6 @@ class ArchiveUnpacker(_PluginBase):
 
     def get_page(self) -> Optional[List[dict]]:
         items = self._history if isinstance(getattr(self, "_history", None), list) else []
-        head = ["时间", "压缩包", "状态", "条目", "说明"]
         rows = []
         for it in items:
             status = str(it.get("status", ""))
@@ -225,7 +224,7 @@ class ArchiveUnpacker(_PluginBase):
             rows.append({
                 "component": "tr",
                 "content": [
-                    {"component": "td", "props": {"width": "170px"}, "text": str(it.get("time", ""))},
+                    {"component": "td", "props": {"width": "190px", "class": "text-no-wrap"}, "text": str(it.get("time", ""))},
                     {"component": "td", "text": str(it.get("archive", ""))},
                     {"component": "td", "props": {"width": "90px"}, "content": [
                         {"component": "VChip", "props": {"color": color, "size": "small"}, "text": status or "未知"}
@@ -265,7 +264,11 @@ class ArchiveUnpacker(_PluginBase):
                             "content": [
                                 {"component": "thead", "content": [
                                     {"component": "tr", "content": [
-                                        {"component": "th", "text": h} for h in head
+                                        {"component": "th", "props": {"width": "190px", "class": "text-no-wrap"}, "text": "时间"},
+                                        {"component": "th", "text": "压缩包"},
+                                        {"component": "th", "props": {"width": "90px"}, "text": "状态"},
+                                        {"component": "th", "props": {"width": "70px"}, "text": "条目"},
+                                        {"component": "th", "text": "说明"},
                                     ]}
                                 ]},
                                 {"component": "tbody", "content": rows},
