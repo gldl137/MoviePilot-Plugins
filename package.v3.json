@@ -35,18 +35,6 @@
       "v1.0.0": "首次发布。"
     }
   },
-  "CommandHelper": {
-    "name": "命令帮助",
-    "description": "显示所有插件的交互命令，帮助用户快速了解可用功能",
-    "labels": "工具,命令",
-    "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
-    "author": "gldl137",
-    "level": 1,
-    "history": {
-      "v1.0.0": "首次发布。"
-    }
-  },
   "DisableTasks": {
     "name": "定时任务禁用",
     "description": "禁用特定的系统定时任务",
@@ -89,42 +77,6 @@
     "labels": "音乐,刮削",
     "version": "1.0.0",
     "icon": "music.png",
-    "author": "gldl137",
-    "level": 1,
-    "history": {
-      "v1.0.0": "首次发布。"
-    }
-  },
-  "OpenListDownloader": {
-    "name": "OpenList 自动下载",
-    "description": "定时扫描 OpenList 指定目录的新增文件，通过 Aria2 自动下载到本地。",
-    "labels": "下载器,OpenList",
-    "version": "1.0.0",
-    "icon": "Moviepilot_A.png",
-    "author": "gldl137",
-    "level": 1,
-    "history": {
-      "v1.0.0": "首次发布。"
-    }
-  },
-  "OpenListMonitorHelper": {
-    "name": "OpenList监测助手",
-    "description": "OpenList存储状态监测工具 - 通过API检测存储异常",
-    "labels": "OpenList,监测",
-    "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
-    "author": "gldl137",
-    "level": 1,
-    "history": {
-      "v1.0.0": "首次发布。"
-    }
-  },
-  "OpenListUploadHelper": {
-    "name": "OpenList上传助手",
-    "description": "文件上传工具 - 支持本地文件自动上传到OpenList网盘，支持命令交互",
-    "labels": "OpenList,上传",
-    "version": "1.0.0",
-    "icon": "https://raw.githubusercontent.com/opentvmedia/OpenTV/main/static/logo.png",
     "author": "gldl137",
     "level": 1,
     "history": {
