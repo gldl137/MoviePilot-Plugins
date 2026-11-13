@@ -3,11 +3,11 @@ import traceback
 from typing import Any, Dict, List, Tuple
 
 # ===== 必须导入的MoviePilot框架组件 =====
-from app.core.config import settings
-from app.core.event import Event, eventmanager
+from app.sdk.config import settings
+from app.sdk.events import Event, eventmanager
 from app.helper.message import MessageHelper
-from app.log import logger
-from app.plugins import _PluginBase
+from app.sdk.logging import logger
+from app.sdk.plugin.base import _PluginBase
 from app.schemas.types import EventType
 
 

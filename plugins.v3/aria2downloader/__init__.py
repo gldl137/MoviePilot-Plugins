@@ -28,8 +28,8 @@ from typing import Any, Optional, Set, Union
 from app.db.oper.systemconfig import SystemConfigOper
 from app.db.oper.downloadhistory import DownloadHistoryOper
 from app.db.session import get_session_factory
-from app.plugins import _PluginBase
-from app.runtime.log import logger
+from app.sdk.plugin.base import _PluginBase
+from app.sdk.logging import logger
 from app.schemas.types import SystemConfigKey, MediaType
 from app.schemas.transfer import DownloaderTorrent
 from app.schemas.types import TorrentStatus, TorrentQueryStatus, DownloadTaskState
@@ -150,7 +150,7 @@ class Aria2Client:
 def _records_dir() -> Path:
     # 优先使用宿主提供的可写插件数据目录，避免相对路径 data 无写权限
     try:
-        from app.core.config import settings
+        from app.sdk.config import settings
         p = settings.PLUGIN_DATA_PATH / "aria2downloader"
     except Exception:  # noqa: BLE001
         p = Path(os.environ.get("MP_DATA", "data")) / "plugins" / "aria2downloader"

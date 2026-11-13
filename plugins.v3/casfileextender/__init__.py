@@ -15,10 +15,10 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.log import logger
+from app.sdk.logging import logger
 
 try:  # 事件系统（整理重命名 Hook）
-    from app.core.event import eventmanager, Event
+    from app.sdk.events import eventmanager, Event
     from app.schemas.types import ChainEventType
     _EVENT_OK = True
 except ImportError:  # 兼容旧版宿主
@@ -33,7 +33,7 @@ except ImportError:
     try:
         from app.sdk.plugin import _PluginBase
     except ImportError:  # 兼容旧版宿主
-        from app.plugins import _PluginBase  # type: ignore
+        from app.sdk.plugin.base import _PluginBase  # type: ignore
 
 __all__ = ["CasFileExtender"]
 
@@ -55,11 +55,11 @@ INNER_VIDEO_EXTS = {
 def _load_settings():
     """兼容不同宿主版本的 settings 导入路径。"""
     try:
-        from app.runtime.config import settings
+        from app.sdk.config import settings
         return settings
     except Exception:
         try:
-            from app.core.config import settings  # type: ignore
+            from app.sdk.config import settings  # type: ignore
             return settings
         except Exception:
             return None

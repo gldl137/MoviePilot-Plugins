@@ -8,14 +8,13 @@ from typing import (Any,  # 【必须】类型注解支持：List（列表）、
 
 # ===== 必须导入的MoviePilot框架组件 =====
 from app import schemas  # 【必须】数据模式定义：包含通知、媒体信息、事件等标准化数据结构
-from app.core.config import settings  # 【可选】系统配置：获取API Token等系统配置信息
-from app.core.event import Event, eventmanager  # 事件管理
-from app.log import logger  # 【必须】系统日志记录器：用于记录插件运行日志，支持不同级别的日志输出
-from app.plugins import \
-    _PluginBase  # 【必须】插件基类：所有MoviePilot插件都必须继承的基类，定义插件的基本接口和生命周期
+from app.sdk.config import settings  # 【可选】系统配置：获取API Token等系统配置信息
+from app.sdk.events import Event, eventmanager  # 事件管理
+from app.sdk.logging import logger  # 【必须】系统日志记录器：用于记录插件运行日志，支持不同级别的日志输出
+from app.sdk.plugin.base import _PluginBase  # 【必须】插件基类：所有MoviePilot插件都必须继承的基类，定义插件的基本接口和生命周期
 from app.schemas.types import EventType  # 事件类型
 from app.schemas.types import NotificationType  # 通知类型
-from app.utils.http import RequestUtils  # 【必须】HTTP请求工具：用于与音乐刮削服务进行通信
+from app.sdk.network import RequestUtils  # 【必须】HTTP请求工具：用于与音乐刮削服务进行通信
 from pydantic import BaseModel  # 【可选】基础模型：API请求响应数据模型
 
 
@@ -123,7 +122,7 @@ class MusicScraperHelp(_PluginBase):
                 return "刮削任务已在运行中，请等待当前任务完成"
             
             # 调用启动刮削的API方法（与页面"启动刮削"按钮功能相同）
-            from app.core.config import settings
+            from app.sdk.config import settings
             from app.api.schemas import BaseApiReq
             
             # 创建API请求对象
@@ -675,7 +674,7 @@ class MusicScraperHelp(_PluginBase):
                 }
 
             # 验证API Token
-            from app.core.config import settings
+            from app.sdk.config import settings
             if hasattr(request, 'apikey') and request.apikey == settings.API_TOKEN:
                 logger.info("API Token验证成功")
             else:
@@ -721,7 +720,7 @@ class MusicScraperHelp(_PluginBase):
                 }
 
             # 验证API Token
-            from app.core.config import settings
+            from app.sdk.config import settings
             if hasattr(request, 'apikey') and request.apikey == settings.API_TOKEN:
                 logger.info("API Token验证成功")
             else:
@@ -762,7 +761,7 @@ class MusicScraperHelp(_PluginBase):
                 }
 
             # 验证API Token
-            from app.core.config import settings
+            from app.sdk.config import settings
             if hasattr(request, 'apikey') and request.apikey == settings.API_TOKEN:
                 logger.info("API Token验证成功")
             else:

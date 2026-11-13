@@ -10,16 +10,16 @@ import traceback
 import concurrent.futures
 import hashlib
 
-from app.core.event import eventmanager, Event
-from app.core.context import MediaInfo
-from app.core.metainfo import MetaInfo
-from app.log import logger
-from app.plugins import _PluginBase
+from app.sdk.events import eventmanager, Event
+from app.sdk.media import MediaInfo
+from app.sdk.media import MetaInfo
+from app.sdk.logging import logger
+from app.sdk.plugin.base import _PluginBase
 from app.schemas.types import EventType, NotificationType, MediaType
 from app.schemas import WebhookEventInfo
-from app.utils.http import RequestUtils
-from app.core.config import settings
-from app.helper.mediaserver import MediaServerHelper
+from app.sdk.network import RequestUtils
+from app.sdk.config import settings
+from app.sdk.services import MediaServerHelper
 
 # 任务状态常量映射
 TASK_STATUS_MAP = {

@@ -1,14 +1,14 @@
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.plugins import _PluginBase
+from app.sdk.plugin.base import _PluginBase
 
 # V3 规范：新插件统一使用 app.sdk 稳定入口；旧宿主回退到兼容路径
 try:
     from app.sdk.events import Event, eventmanager
     from app.sdk.logging import logger
 except ImportError:  # 兼容尚未提供 app.sdk 的旧宿主
-    from app.core.event import Event, eventmanager
-    from app.log import logger
+    from app.sdk.events import Event, eventmanager
+    from app.sdk.logging import logger
 
 try:
     from app.schemas.types import ChainEventType

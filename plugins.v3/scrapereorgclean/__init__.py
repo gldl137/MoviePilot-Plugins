@@ -29,9 +29,9 @@ try:
     from app.sdk.logging import logger
     from app.sdk.plugin import _PluginBase
 except ImportError:  # 兼容尚未提供 app.sdk 的旧宿主
-    from app.core.event import Event, eventmanager
-    from app.log import logger
-    from app.plugins import _PluginBase
+    from app.sdk.events import Event, eventmanager
+    from app.sdk.logging import logger
+    from app.sdk.plugin.base import _PluginBase
 
 from app.schemas.types import EventType, MessageType
 

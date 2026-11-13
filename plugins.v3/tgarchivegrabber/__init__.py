@@ -38,7 +38,7 @@ try:
     # V3 稳定入口（与已上线插件 TgMediaCenter 一致）；顶层只依赖 app.sdk.*
     from app.sdk.plugin import _PluginBase
 except ImportError:  # 兼容仅提供旧公开入口的宿主
-    from app.plugins import _PluginBase  # type: ignore
+    from app.sdk.plugin.base import _PluginBase  # type: ignore
 
 try:
     from app.sdk.logging import logger

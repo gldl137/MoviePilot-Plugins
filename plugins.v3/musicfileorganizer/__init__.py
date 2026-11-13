@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app import schemas
-from app.core.config import settings
-from app.core.event import Event, eventmanager
-from app.log import logger
-from app.plugins import _PluginBase
+from app.sdk.config import settings
+from app.sdk.events import Event, eventmanager
+from app.sdk.logging import logger
+from app.sdk.plugin.base import _PluginBase
 from app.schemas import NotificationType
 from app.schemas.types import EventType
-from app.utils.system import SystemUtils
+from app.sdk.utilities import SystemUtils
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import APIRouter, Request
@@ -4550,7 +4550,7 @@ class MusicFileOrganizer(_PluginBase):
                 event_text = f"检测到{file_count}个音频文件需要刮削"
 
                 # 发送简化事件 - 使用官方模板格式
-                from app.core.event import eventmanager
+                from app.sdk.events import eventmanager
                 eventmanager.send_event(EventType.MetadataScrape, {
                     "channel": None,  # 可选：消息通道
                     "type": None,     # 可选：通知类型

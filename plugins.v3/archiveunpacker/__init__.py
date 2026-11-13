@@ -32,7 +32,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.log import logger
+from app.sdk.logging import logger
 
 try:  # 新版宿主
     from app.sdk.plugin.base import _PluginBase
@@ -40,7 +40,7 @@ except ImportError:
     try:
         from app.sdk.plugin import _PluginBase
     except ImportError:  # 兼容旧版宿主
-        from app.plugins import _PluginBase  # type: ignore
+        from app.sdk.plugin.base import _PluginBase  # type: ignore
 
 
 __all__ = ["ArchiveUnpacker"]

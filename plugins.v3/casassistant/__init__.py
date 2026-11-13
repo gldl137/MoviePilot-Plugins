@@ -6,7 +6,7 @@ get_cas_config() 读取接口，供其它插件统一获取，避免各插件重
 
 其它插件获取方式（任选其一）：
 1. 调用方法（推荐，返回已剥离前缀的干净配置）：
-   from app.runtime.extensions.plugin_manager import PluginManager
+   from app.sdk.plugins import PluginManager
    cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
 2. 读取原始配置（带前缀 casassistant_）：
    cfg = PluginManager().get_plugin_config("casassistant")
@@ -27,7 +27,7 @@ except ImportError:
     try:
         from app.sdk.plugin import _PluginBase
     except ImportError:
-        from app.plugins import _PluginBase  # type: ignore
+        from app.sdk.plugin.base import _PluginBase  # type: ignore
 
 
 __all__ = ["casassistant"]
@@ -39,7 +39,7 @@ PLUGIN_ID = "casassistant"
 CALL_HELP_TEXT = """其它插件无需各自填写 CAS 服务地址，直接读取本插件配置即可。
 
 方式一（推荐）：调用方法，返回已剥离前缀的干净配置
-  from app.runtime.extensions.plugin_manager import PluginManager
+  from app.sdk.plugins import PluginManager
 
   cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
   # cfg = {"enabled": bool, "host": str, "api_key": str}
@@ -245,7 +245,7 @@ class casassistant(_PluginBase):
         }
 
         其它插件调用示例：
-            from app.runtime.extensions.plugin_manager import PluginManager
+            from app.sdk.plugins import PluginManager
             cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
         """
         return {

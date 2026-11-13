@@ -21,12 +21,12 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional, Tuple
 
-from app.plugins import _PluginBase
+from app.sdk.plugin.base import _PluginBase
 
 try:  # MoviePilot V3 稳定日志入口
     from app.sdk.logging import logger
 except Exception:  # pragma: no cover - 兼容旧宿主
-    from app.log import logger
+    from app.sdk.logging import logger
 
 
 # 插件自身目录：wasm 运行时与插件源码位于同一目录

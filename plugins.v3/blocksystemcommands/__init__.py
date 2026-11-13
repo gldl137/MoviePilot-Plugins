@@ -7,10 +7,9 @@ from typing import (Any,  # 【必须】类型注解支持：List（列表）、
 
 # ===== 必须导入的MoviePilot框架组件 =====
 from app import schemas  # 【必须】数据模式定义：包含通知、媒体信息、事件等标准化数据结构
-from app.core.event import Event, eventmanager  # 事件管理
-from app.log import logger  # 【必须】系统日志记录器：用于记录插件运行日志，支持不同级别的日志输出
-from app.plugins import \
-    _PluginBase  # 【必须】插件基类：所有MoviePilot插件都必须继承的基类，定义插件的基本接口和生命周期
+from app.sdk.events import Event, eventmanager  # 事件管理
+from app.sdk.logging import logger  # 【必须】系统日志记录器：用于记录插件运行日志，支持不同级别的日志输出
+from app.sdk.plugin.base import _PluginBase  # 【必须】插件基类：所有MoviePilot插件都必须继承的基类，定义插件的基本接口和生命周期
 from app.schemas import CommandRegisterEventData
 from app.schemas.types import ChainEventType, EventType  # 事件类型
 
