@@ -54,7 +54,7 @@ class casassistant(_PluginBase):
     plugin_name = "CAS助手"
     plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），供其它插件统一读取，避免各插件重复填写 CAS 服务地址。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -109,7 +109,7 @@ class casassistant(_PluginBase):
                                 "props": {"cols": 12, "md": 8},
                                 "content": [
                                     {
-                                        "component": "VText",
+                                        "component": "VTextField",
                                         "props": {
                                             "model": "cas_host",
                                             "label": "CAS 服务地址",
@@ -123,7 +123,7 @@ class casassistant(_PluginBase):
                                 "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
-                                        "component": "VText",
+                                        "component": "VTextField",
                                         "props": {
                                             "model": "cas_api_key",
                                             "label": "CAS API Key",

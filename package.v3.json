@@ -155,12 +155,13 @@
     "name": "CAS助手",
     "description": "集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），供其它插件统一读取，避免各插件重复填写 CAS 服务地址。",
     "labels": "工具,CAS,配置",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.0.1": "修复设置界面缺少「CAS 服务地址」「CAS API Key」输入框的问题（表单组件名 VText 改为 VTextField）。",
       "v1.0.0": "首次发布：集中管理 CAS 服务连接配置（地址/API Key/路径映射）并对外提供 get_cas_config() 读取接口，其它插件可通过 PluginManager.run_plugin_method('casassistant','get_cas_config') 获取，无需各自填写 CAS 服务地址。"
     }
   },
