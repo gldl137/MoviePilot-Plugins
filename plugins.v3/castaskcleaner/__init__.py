@@ -50,7 +50,7 @@ class CASTaskCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "cloud189.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
@@ -431,41 +431,8 @@ class CASTaskCleaner(_PluginBase):
                             "variant": "tonal",
                             "density": "compact",
                             "class": "mt-2",
-                            "text": "CAS 连接配置（地址/API Key）优先从「CAS助手」插件读取，此处填写仅作为未安装 CAS助手 时的回退。"
+                            "text": "CAS 连接配置已统一由「CAS助手」插件管理，本插件不再单独填写。请先在插件市场安装并启用「CAS助手」插件，在其中填写 CAS 服务地址与 API Key，本插件会自动读取。"
                         }
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "host",
-                                            "label": "CAS 服务地址",
-                                            "placeholder": "http://IP:端口/"
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12, "md": 6},
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "api_key",
-                                            "label": "API Key",
-                                            "placeholder": "在CAS设置中获取"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
                     },
                     {
                         "component": "VRow",
@@ -496,8 +463,6 @@ class CASTaskCleaner(_PluginBase):
             "delete_proxy_tasks": self._delete_proxy_tasks,
             "enable_library_filter": self._enable_library_filter,
             "excluded_library_ids": self._excluded_library_ids,
-            "host": self._host or "",
-            "api_key": self._api_key or "",
             "delay_seconds": self._delay_seconds,
         }
 
