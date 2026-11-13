@@ -14,7 +14,7 @@ get_cas_config() 读取接口，供其它插件统一获取，避免各插件重
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.log import logger
+from app.sdk.logging import logger
 
 try:  # HTTP 探测连接状态
     import requests
