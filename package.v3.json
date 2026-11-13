@@ -178,14 +178,15 @@
   },
   "CasFileExtender": {
     "name": "CAS视频扩展",
-    "description": "把 .cas 注入视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别（无其他功能）",
+    "description": "把 .cas 注入视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别；整理重命名时保留内层视频扩展名（.mkv.cas 不再被改成 .cas）",
     "labels": "媒体,扩展名",
-    "version": "1.25",
+    "version": "1.26",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.26": "新增整理重命名 Hook：监听 TransferRenameBuild/TransferRename，当源文件为 .mkv.cas 等带内层视频扩展名的 .cas 时，把目标文件名的扩展名从 .cas 补回 .mkv.cas，避免 MoviePilot 整理时丢失内层视频扩展名。",
       "v1.25": "移除「存量补扫CAS文件」命令，恢复 MoviePilot 原生行为：插件仅做扩展名放行与缓存刷新，不主动处理监控启动前已存在的文件（只处理新增/修改，符合目录监控设计）。",
       "v1.24": "新增「存量补扫CAS文件」命令：一键遍历所有本地监控目录里已存在的 .cas 并提交整理（绕过目录监控只处理新增/修改的限制），复用原生历史去重不会重复整理。",
       "v1.23": "修复 .cas 不被识别：改为刷新 TransferChain 单例缓存的 _media_exts/_allowed_exts 与 Monitor 分发器 all_exts（这些都是实例一次性缓存，不实时读 settings），使目录监控与整理链真正把 .cas 当视频文件；启用开关控制是否生效。",

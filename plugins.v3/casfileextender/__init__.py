@@ -12,9 +12,20 @@ CAS视频扩展（CasFileExtender）
 """
 import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.log import logger
+
+try:  # 事件系统（整理重命名 Hook）
+    from app.core.event import eventmanager, Event
+    from app.schemas.types import ChainEventType
+    _EVENT_OK = True
+except ImportError:  # 兼容旧版宿主
+    eventmanager = None  # type: ignore
+    Event = None  # type: ignore
+    ChainEventType = None  # type: ignore
+    _EVENT_OK = False
 
 try:  # 新版宿主
     from app.sdk.plugin.base import _PluginBase
@@ -27,6 +38,13 @@ except ImportError:
 __all__ = ["CasFileExtender"]
 
 DEFAULT_EXT = "cas"
+
+# 内层视频扩展名白名单：.cas 前若带这些扩展名，整理重命名时需保留
+INNER_VIDEO_EXTS = {
+    ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mts", ".mov", ".wmv", ".flv",
+    ".webm", ".rmvb", ".rm", ".mpg", ".mpeg", ".m4v", ".3gp", ".vob",
+    ".iso", ".asf", ".f4v", ".ogv", ".divx", ".xvid",
+}
 
 
 def _load_settings():
@@ -136,7 +154,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.25"
+    plugin_version = "1.26"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -203,6 +221,77 @@ class CasFileExtender(_PluginBase):
 
     def get_service(self) -> List[Dict[str, Any]]:
         return []
+
+    # ---------------- 整理重命名 Hook ----------------
+    # 场景：源文件形如 `xxx.mkv.cas`，MoviePilot 整理时把扩展名算成 `.cas`，
+    # 导致目标文件名丢掉内层 `.mkv`。这里在重命名渲染前后把扩展名补回成 `.mkv.cas`。
+
+    @staticmethod
+    def _cas_inner_video_ext(source_item: Any, source_path: Any) -> Optional[str]:
+        """从 .cas 源文件名提取内层视频扩展名（如 `xxx.mkv.cas` -> `.mkv`）。"""
+        name = ""
+        if source_item is not None:
+            name = getattr(source_item, "name", "") or ""
+        if not name and source_path:
+            name = Path(str(source_path)).name
+        name = str(name or "").strip()
+        if not name.lower().endswith(f".{DEFAULT_EXT}"):
+            return None
+        base = name[: -len(DEFAULT_EXT) - 1]  # 去掉末尾 .cas
+        inner = Path(base).suffix.lower()
+        if inner in INNER_VIDEO_EXTS:
+            return inner
+        return None
+
+    if _EVENT_OK and getattr(ChainEventType, "TransferRenameBuild", None) is not None:
+
+        @eventmanager.register(ChainEventType.TransferRenameBuild)
+        def on_transfer_rename_build(self, event: Event) -> None:
+            """渲染前把 rename_dict['fileExt'] 从 `.cas` 改为 `.mkv.cas`。"""
+            if not self._enabled:
+                return
+            data = event.event_data
+            if not data:
+                return
+            inner = self._cas_inner_video_ext(
+                getattr(data, "source_item", None), getattr(data, "source_path", None)
+            )
+            if not inner:
+                return
+            rename_dict = getattr(data, "rename_dict", None)
+            if not isinstance(rename_dict, dict):
+                return
+            old = str(rename_dict.get("fileExt") or "")
+            new = f"{inner}.{DEFAULT_EXT}"
+            if old.lower() != new.lower():
+                rename_dict["fileExt"] = new
+                logger.info(f"CAS视频扩展：重命名扩展名 {old or '空'} -> {new}")
+
+    if _EVENT_OK and getattr(ChainEventType, "TransferRename", None) is not None:
+
+        @eventmanager.register(ChainEventType.TransferRename)
+        def on_transfer_rename(self, event: Event) -> None:
+            """渲染后兜底：若最终文件名仍以 `.cas` 结尾，补回内层视频扩展名。"""
+            if not self._enabled:
+                return
+            data = event.event_data
+            if not data:
+                return
+            render_str = str(getattr(data, "render_str", "") or "")
+            if not render_str.lower().endswith(f".{DEFAULT_EXT}"):
+                return
+            inner = self._cas_inner_video_ext(
+                getattr(data, "source_item", None), getattr(data, "source_path", None)
+            )
+            if not inner:
+                return
+            if render_str.lower().endswith(f"{inner}.{DEFAULT_EXT}"):
+                return  # 已是 .mkv.cas，无需再补
+            new_str = render_str[: -len(DEFAULT_EXT) - 1] + f"{inner}.{DEFAULT_EXT}"
+            data.updated = True
+            data.updated_str = new_str
+            data.source = "CAS视频扩展"
+            logger.info(f"CAS视频扩展：修正目标文件名 {render_str} -> {new_str}")
 
     def stop_service(self):
         pass
