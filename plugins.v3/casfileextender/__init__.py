@@ -39,11 +39,16 @@ __all__ = ["CasFileExtender"]
 
 DEFAULT_EXT = "cas"
 
-# 内层视频扩展名白名单：.cas 前若带这些扩展名，整理重命名时需保留
+# 已知内层视频扩展名（白名单优先匹配）：.cas 前若带这些扩展名，整理重命名时保留。
+# 同时 _cas_inner_video_ext 允许任意「纯字母」内层扩展名自动保留，以兼容未列出的格式。
 INNER_VIDEO_EXTS = {
-    ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".mts", ".mov", ".wmv", ".flv",
-    ".webm", ".rmvb", ".rm", ".mpg", ".mpeg", ".m4v", ".3gp", ".vob",
-    ".iso", ".asf", ".f4v", ".ogv", ".divx", ".xvid",
+    ".mkv", ".mk3d", ".mp4", ".m4v", ".avi", ".divx", ".xvid", ".mov", ".qt",
+    ".wmv", ".asf", ".mpg", ".mpeg", ".m2v", ".m1v", ".ts", ".m2ts", ".mts",
+    ".tp", ".trp", ".vob", ".ifo", ".ogv", ".ogg", ".webm", ".flv", ".f4v",
+    ".f4p", ".3gp", ".3g2", ".rm", ".rmvb", ".iso", ".img", ".nrg", ".dav",
+    ".264", ".265", ".h264", ".h265", ".hevc", ".avc", ".drc", ".wtv",
+    ".dvr-ms", ".amv", ".nsv", ".svi", ".gvi", ".dat", ".bdmv", ".evo",
+    ".mxf", ".webm",
 }
 
 
@@ -154,7 +159,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.27"
+    plugin_version = "1.28"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -255,7 +260,11 @@ class CasFileExtender(_PluginBase):
             return None
         base = name[: -len(DEFAULT_EXT) - 1]  # 去掉末尾 .cas
         inner = Path(base).suffix.lower()
-        if inner in INNER_VIDEO_EXTS:
+        if not inner:
+            return None
+        # 已知视频扩展名，或纯字母的未知内层扩展名（容错未来格式）；
+        # 含数字的内层名（如 2160p）视为分辨率标签而非扩展名，不保留。
+        if inner in INNER_VIDEO_EXTS or (inner[1:].isalpha() and 1 <= len(inner) - 1 <= 8):
             return inner
         return None
 
