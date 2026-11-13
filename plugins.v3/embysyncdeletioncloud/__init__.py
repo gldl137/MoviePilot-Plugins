@@ -113,7 +113,7 @@ class embysyncdeletioncloud(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
@@ -4385,37 +4385,14 @@ class embysyncdeletioncloud(_PluginBase):
                 "props": {"class": "my-2"},
             },
             {
-                "component": "VRow",
-                "content": [
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "cas_host",
-                                    "label": "CAS 服务地址",
-                                    "placeholder": "http://192.168.1.100:3005"
-                                }
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VCol",
-                        "props": {"cols": 12, "md": 6},
-                        "content": [
-                            {
-                                "component": "VTextField",
-                                "props": {
-                                    "model": "cas_api_key",
-                                    "label": "API Key",
-                                    "placeholder": "在CAS设置中获取"
-                                }
-                            }
-                        ]
-                    }
-                ]
+                "component": "VAlert",
+                "props": {
+                    "type": "info",
+                    "variant": "tonal",
+                    "density": "compact",
+                    "class": "mt-2",
+                    "text": "CAS 连接配置已统一由「CAS助手」插件管理，本插件不再单独填写。请先在插件市场安装并启用「CAS助手」插件，在其中填写 CAS 服务地址与 API Key，本插件会自动读取。"
+                }
             },
             {
                 "component": "VAlert",
@@ -4424,7 +4401,7 @@ class embysyncdeletioncloud(_PluginBase):
                     "variant": "tonal",
                     "density": "compact",
                     "class": "mt-2",
-                    "text": "CAS服务用于清理天翼云盘中的对应目录。删除本地文件后,将自动清理云盘中对应的目录。CAS 连接配置（地址/API Key）优先从「CAS助手」插件读取，此处填写仅作为未安装 CAS助手 时的回退。",
+                    "text": "CAS服务用于清理天翼云盘中的对应目录。删除本地文件后,将自动清理云盘中对应的目录。CAS 连接配置（地址/API Key）请到「CAS助手」插件中填写，本插件会自动读取。",
                 },
             },
             {
@@ -4805,8 +4782,6 @@ class embysyncdeletioncloud(_PluginBase):
             "cas_path_mapping": "/Downloads/STRM/strm网盘/天翼云盘5#10#天翼云盘5",  # CAS路径映射配置
             "mediaservers": ["emby"],  # 媒体服务器列表，默认开启emby
             "cas_enabled": False,  # CAS功能是否启用
-            "cas_host": "http://192.168.1.100:3005",  # CAS服务地址
-            "cas_api_key": "",  # CAS API密钥
             "cas_debug_log": True,  # CAS调试日志是否开启
             "openlist_enabled": False,  # OpenList功能是否启用
             "openlist_host": "",  # OpenList地址
