@@ -61,7 +61,7 @@ class casassistant(_PluginBase):
     plugin_name = "CAS助手"
     plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key），供其它插件统一读取，避免各插件重复填写 CAS 服务地址；启动时探测并在日志中显示连接状态。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -154,9 +154,9 @@ class casassistant(_PluginBase):
                                             {
                                                 "component": "VCardText",
                                                 "props": {
-                                                    "style": "white-space: pre-wrap; font-size: 13px; line-height: 1.5;",
-                                                    "text": CALL_HELP_TEXT
-                                                }
+                                                    "style": "white-space: pre-wrap; font-size: 13px; line-height: 1.5;"
+                                                },
+                                                "text": CALL_HELP_TEXT
                                             }
                                         ]
                                     }
