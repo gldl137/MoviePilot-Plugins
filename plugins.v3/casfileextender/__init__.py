@@ -154,7 +154,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.26"
+    plugin_version = "1.27"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -162,10 +162,12 @@ class CasFileExtender(_PluginBase):
     auth_level = 1
 
     _enabled: bool = False
+    _keep_inner_ext: bool = True
 
     def init_plugin(self, config: dict = None):
         cfg = config or {}
         self._enabled = bool(cfg.get("enabled", False))
+        self._keep_inner_ext = bool(cfg.get("keep_inner_ext", True))
         if not self._enabled:
             return
         # 启用时刷新各处扩展名缓存（.cas 识别是全局行为，但受启用开关控制）
@@ -179,10 +181,10 @@ class CasFileExtender(_PluginBase):
 
     def get_state(self) -> Any:
         """返回插件状态（宿主基类抽象方法）。"""
-        return {"enabled": self._enabled}
+        return {"enabled": self._enabled, "keep_inner_ext": self._keep_inner_ext}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """仅保留一个启用开关。"""
+        """仅保留启用开关与「保留视频扩展名」开关。"""
         return [
             {
                 "component": "VForm",
@@ -202,12 +204,26 @@ class CasFileExtender(_PluginBase):
                                         },
                                     }
                                 ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 8},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "keep_inner_ext",
+                                            "label": "保留视频扩展名",
+                                            "hint": "整理重命名时把 .mkv.cas 的内层视频扩展名（如 .mkv）补回，避免被改成 .cas",
+                                        },
+                                    }
+                                ],
                             }
                         ],
                     }
                 ],
             }
-        ], {"enabled": False}
+        ], {"enabled": False, "keep_inner_ext": True}
 
     def get_page(self) -> Optional[List[dict]]:
         """无自定义详情页（与系统命令屏蔽一致：点击卡片直接进设置）。"""
@@ -250,6 +266,8 @@ class CasFileExtender(_PluginBase):
             """渲染前把 rename_dict['fileExt'] 从 `.cas` 改为 `.mkv.cas`。"""
             if not self._enabled:
                 return
+            if not self._keep_inner_ext:
+                return
             data = event.event_data
             if not data:
                 return
@@ -273,6 +291,8 @@ class CasFileExtender(_PluginBase):
         def on_transfer_rename(self, event: Event) -> None:
             """渲染后兜底：若最终文件名仍以 `.cas` 结尾，补回内层视频扩展名。"""
             if not self._enabled:
+                return
+            if not self._keep_inner_ext:
                 return
             data = event.event_data
             if not data:
