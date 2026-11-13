@@ -29,6 +29,26 @@ __all__ = ["casassistant"]
 # 其它插件通过此 id 引用本插件：PluginManager.run_plugin_method(PLUGIN_ID, "get_cas_config")
 PLUGIN_ID = "casassistant"
 
+# 设置界面「其它插件如何调用」说明文本
+CALL_HELP_TEXT = """其它插件无需各自填写 CAS 服务地址，直接读取本插件配置即可。
+
+方式一（推荐）：调用方法，返回已剥离前缀的干净配置
+  from app.runtime.extensions.plugin_manager import PluginManager
+
+  cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
+  # cfg = {"enabled": bool, "host": str, "api_key": str, "path_mapping": [...]}
+  if cfg and cfg.get("enabled") and cfg.get("host"):
+      host = cfg["host"]
+      api_key = cfg["api_key"]
+  else:
+      # 未配置，回退到各插件自身填写
+      pass
+
+方式二：直接读取原始配置（键带前缀 casassistant_）
+  raw = PluginManager().get_plugin_config("casassistant")
+  # raw = {"casassistant_cas_host": ..., "casassistant_cas_api_key": ..., ...}
+"""
+
 
 def _parse_path_mapping(config_str: str) -> List[Dict[str, str]]:
     """解析路径映射：每行 `local#account_id#account_name`（account_name 可选）。"""
@@ -54,7 +74,7 @@ class casassistant(_PluginBase):
     plugin_name = "CAS助手"
     plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），供其它插件统一读取，避免各插件重复填写 CAS 服务地址。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -86,6 +106,36 @@ class casassistant(_PluginBase):
             {
                 "component": "VForm",
                 "content": [
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VCard",
+                                        "props": {"variant": "flat", "class": "mb-2", "color": "surface"},
+                                        "content": [
+                                            {
+                                                "component": "VCardItem",
+                                                "content": [
+                                                    {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "其它插件如何调用"}
+                                                ]
+                                            },
+                                            {
+                                                "component": "VCardText",
+                                                "props": {
+                                                    "style": "white-space: pre-wrap; font-size: 13px; line-height: 1.5;",
+                                                    "text": CALL_HELP_TEXT
+                                                }
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
                     {
                         "component": "VRow",
                         "content": [
