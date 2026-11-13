@@ -61,7 +61,7 @@ class casassistant(_PluginBase):
     plugin_name = "CAS助手"
     plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key），供其它插件统一读取，避免各插件重复填写 CAS 服务地址；启动时探测并在日志中显示连接状态。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -85,22 +85,41 @@ class casassistant(_PluginBase):
         threading.Thread(target=self._check_and_log_connection, daemon=True).start()
 
     def _check_and_log_connection(self) -> None:
-        """探测 CAS 服务连通性，并在日志中输出连接状态。"""
+        """探测 CAS 服务连通性，并通过 /api/tasks 验证 API Key 是否有效（参考 CASTaskCleaner）。"""
         if not self._cas_enabled:
             logger.info("CAS助手：插件未启用，跳过连接检测")
             return
         host = (self._cas_host or "").strip()
+        api_key = (self._cas_api_key or "").strip()
         if not host:
             logger.info("CAS助手：未配置 CAS 服务地址，跳过连接检测")
             return
         url = host if host.lower().startswith(("http://", "https://")) else f"http://{host}"
+        if not url.endswith("/"):
+            url += "/"
         if requests is None:
             logger.warning("CAS助手：当前环境缺少 requests，无法检测连接状态")
             return
         try:
-            resp = requests.get(url, timeout=5, verify=False)
-            self._cas_connected = True
-            logger.info("CAS助手：CAS 服务连接正常（%s，HTTP %s）", url, resp.status_code)
+            headers = {"x-api-key": api_key} if api_key else {}
+            resp = requests.get(
+                f"{url}api/tasks",
+                headers=headers,
+                params={"page": 1, "pageSize": 1},
+                timeout=5,
+                verify=False,
+            )
+            if resp.status_code == 200:
+                self._cas_connected = True
+                if api_key:
+                    logger.info("CAS助手：CAS 服务连接正常且 API Key 鉴权通过（%s）", url)
+                else:
+                    logger.info("CAS助手：CAS 服务连通（%s），但未配置 API Key，未验证鉴权", url)
+            else:
+                self._cas_connected = False
+                logger.warning("CAS助手：CAS 服务连接异常（%s）：HTTP %s%s",
+                               url, resp.status_code,
+                               (" - " + resp.text[:200] if resp.text else ""))
         except Exception as err:
             self._cas_connected = False
             logger.warning("CAS助手：CAS 服务连接异常（%s）：%s", url, err)
@@ -108,7 +127,7 @@ class casassistant(_PluginBase):
     # ---------------- 宿主基类要求 ----------------
 
     def get_state(self) -> Any:
-        return {"enabled": self._cas_enabled}
+        return {"enabled": self._cas_enabled, "connected": self._cas_connected}
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
