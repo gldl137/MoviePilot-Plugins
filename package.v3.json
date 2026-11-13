@@ -51,11 +51,12 @@
     "name": "Emby同步删除云盘",
     "description": "Emby媒体删除时自动删除本地和云盘文件。",
     "labels": "媒体库,Emby,云盘",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "mediasyncdel.png",
     "author": "gldl137",
     "level": 1,
     "history": {
+      "v1.0.1": "CAS 连接配置改为优先从「CAS助手」插件读取（通过 PluginManager.run_plugin_method 调用 get_cas_config），读不到或未安装 CAS助手 时回退本插件自身填写；本插件配置不再写回 CAS 服务地址/Key。",
       "v1.0.0": "首次发布。"
     }
   },

@@ -23,6 +23,7 @@ from app.sdk.services import DownloaderHelper
 from app.sdk.services import MediaServerHelper
 from app.sdk.logging import logger
 from app.sdk.plugin.base import _PluginBase
+from app.sdk.plugins import PluginManager
 from app.schemas.mediaserver import WebhookEventInfo
 from app.schemas.types import (EventType, MediaImageType, MediaSource,
                                MediaType, NotificationType)
@@ -112,7 +113,7 @@ class embysyncdeletioncloud(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
@@ -144,6 +145,8 @@ class embysyncdeletioncloud(_PluginBase):
     _cas_enabled: bool = False
     _cas_host: Optional[str] = None
     _cas_api_key: Optional[str] = None
+    _cas_host_self: Optional[str] = None  # 自身填写的回退配置（不随 CAS助手 覆盖而改变）
+    _cas_api_key_self: Optional[str] = None  # 自身填写的回退配置
     # CAS 删除任务开关
     _cas_delete_normal_task_enabled: bool = False
     _cas_delete_crystal_task_enabled: bool = False
@@ -232,6 +235,10 @@ class embysyncdeletioncloud(_PluginBase):
             self._cas_enabled = config.get("cas_enabled", False)  # CAS服务启用状态
             self._cas_host = config.get("cas_host", "")  # CAS服务主机地址
             self._cas_api_key = config.get("cas_api_key", "")  # CAS服务API密钥
+            # 保留自身填写（用于回退与持久化），随后优先从 CAS助手 读取覆盖
+            self._cas_host_self = self._cas_host
+            self._cas_api_key_self = self._cas_api_key
+            self._load_cas_from_assistant()
             self._cas_debug_log = False  # cas_debug_log 使用默认值False
             self._cas_delete_normal_task_enabled = config.get(
                 "cas_delete_normal_task_enabled", False)  # 普通任务删除功能开关
@@ -325,8 +332,8 @@ class embysyncdeletioncloud(_PluginBase):
                     "openlist_path_mapping": openlist_path_mapping,
                     "mediaservers": self._mediaserver,
                     "cas_enabled": self._cas_enabled,
-                    "cas_host": self._cas_host,
-                    "cas_api_key": self._cas_api_key,
+                    "cas_host": self._cas_host_self,
+                    "cas_api_key": self._cas_api_key_self,
                     "cas_debug_log": self._cas_debug_log,
                     "openlist_enabled": self._openlist_enabled,
                     "openlist_host": self._openlist_host,
@@ -377,6 +384,22 @@ class embysyncdeletioncloud(_PluginBase):
 
         logger.error(f"所有请求尝试均失败: {method} {url}")
         return None
+
+    def _load_cas_from_assistant(self):
+        """优先从 CAS助手 读取 CAS 服务连接配置；读不到则保留本插件自身填写（回退）。"""
+        try:
+            cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
+        except Exception as err:
+            logger.debug("Emby同步删除云盘：调用 CAS助手 失败（%s），使用本插件自身 CAS 配置", err)
+            return
+        if not cfg or not isinstance(cfg, dict):
+            return
+        if cfg.get("enabled") and cfg.get("host"):
+            self._cas_host = cfg["host"]
+            self._cas_api_key = cfg.get("api_key") or ""
+            logger.info("Emby同步删除云盘：已从 CAS助手 读取 CAS 服务配置（%s）", cfg["host"])
+        else:
+            logger.debug("Emby同步删除云盘：CAS助手 未启用或未配置地址，使用本插件自身 CAS 配置")
 
     def _test_cas_connection(self):
         """测试CAS服务连接（新版，变量名与用户要求一致）"""
@@ -4401,7 +4424,7 @@ class embysyncdeletioncloud(_PluginBase):
                     "variant": "tonal",
                     "density": "compact",
                     "class": "mt-2",
-                    "text": "CAS服务用于清理天翼云盘中的对应目录。删除本地文件后,将自动清理云盘中对应的目录。",
+                    "text": "CAS服务用于清理天翼云盘中的对应目录。删除本地文件后,将自动清理云盘中对应的目录。CAS 连接配置（地址/API Key）优先从「CAS助手」插件读取，此处填写仅作为未安装 CAS助手 时的回退。",
                 },
             },
             {
