@@ -27,11 +27,12 @@
     "name": "CAS任务清理",
     "description": "自动清理《天翼云盘自动转存》中已完成任务，并通知追剧进度。仅支持EMBY媒体服务器。",
     "labels": "工具,CAS,Emby",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "cloud189.png",
     "author": "gldl137",
     "level": 1,
     "history": {
+      "v1.0.1": "CAS 连接配置改为优先从「CAS助手」插件读取（通过 PluginManager.run_plugin_method 调用 get_cas_config），读不到或未安装 CAS助手 时回退本插件自身填写；本插件不写回 CAS 服务地址/Key。",
       "v1.0.0": "首次发布。"
     }
   },
@@ -154,7 +155,7 @@
   },
   "casassistant": {
     "name": "CAS助手",
-    "description": "集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），供其它插件统一读取，避免各插件重复填写 CAS 服务地址。",
+    "description": "集中管理 CAS 服务的连接配置（地址、API Key），供其它插件统一读取，避免各插件重复填写 CAS 服务地址；启动时探测并在日志中显示连接状态。",
     "labels": "工具,CAS,配置",
     "version": "1.0.5",
     "icon": "Moviepilot_A.png",

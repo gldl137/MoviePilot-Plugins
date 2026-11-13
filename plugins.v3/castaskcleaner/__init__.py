@@ -15,6 +15,7 @@ from app.sdk.media import MediaInfo
 from app.sdk.media import MetaInfo
 from app.sdk.logging import logger
 from app.sdk.plugin.base import _PluginBase
+from app.sdk.plugins import PluginManager
 from app.schemas.types import EventType, NotificationType, MediaType
 from app.schemas import WebhookEventInfo
 from app.sdk.network import RequestUtils
@@ -49,7 +50,7 @@ class CASTaskCleaner(_PluginBase):
     # 插件图标
     plugin_icon = "cloud189.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
@@ -106,6 +107,8 @@ class CASTaskCleaner(_PluginBase):
             # 处理CAS服务配置
             self._cas_host = config.get("host", "")
             self._cas_api_key = config.get("api_key", "")
+            # 优先从 CAS助手 读取集中配置（覆盖 host/key，供后续验证与连接使用）
+            self._load_cas_from_assistant()
 
             # 处理排除的媒体库ID（清理格式）
             excluded_ids_str = config.get("excluded_library_ids", "")
@@ -247,6 +250,22 @@ class CASTaskCleaner(_PluginBase):
 
         logger.error(f"所有请求尝试均失败: {method} {url}")
         return None
+
+    def _load_cas_from_assistant(self):
+        """优先从 CAS助手 读取 CAS 服务连接配置；读不到则保留本插件自身填写（回退）。"""
+        try:
+            cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
+        except Exception as err:
+            logger.debug("CAS任务清理：调用 CAS助手 失败（%s），使用本插件自身 CAS 配置", err)
+            return
+        if not cfg or not isinstance(cfg, dict):
+            return
+        if cfg.get("enabled") and cfg.get("host"):
+            self._cas_host = cfg["host"]
+            self._cas_api_key = cfg.get("api_key") or ""
+            logger.info("CAS任务清理：已从 CAS助手 读取 CAS 服务配置（%s）", cfg["host"])
+        else:
+            logger.debug("CAS任务清理：CAS助手 未启用或未配置地址，使用本插件自身 CAS 配置")
 
     def _test_cas_connection(self):
         """测试CAS服务连接"""
@@ -404,6 +423,16 @@ class CASTaskCleaner(_PluginBase):
                                 ]
                             }
                         ]
+                    },
+                    {
+                        "component": "VAlert",
+                        "props": {
+                            "type": "info",
+                            "variant": "tonal",
+                            "density": "compact",
+                            "class": "mt-2",
+                            "text": "CAS 连接配置（地址/API Key）优先从「CAS助手」插件读取，此处填写仅作为未安装 CAS助手 时的回退。"
+                        }
                     },
                     {
                         "component": "VRow",
