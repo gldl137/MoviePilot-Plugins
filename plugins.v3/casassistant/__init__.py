@@ -1,7 +1,7 @@
 """
 CAS助手（casassistant）
 
-集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），并对外提供
+集中管理 CAS 服务的连接配置（地址、API Key 等），并对外提供
 get_cas_config() 读取接口，供其它插件统一获取，避免各插件重复填写 CAS 服务地址。
 
 其它插件获取方式（任选其一）：
@@ -11,9 +11,15 @@ get_cas_config() 读取接口，供其它插件统一获取，避免各插件重
 2. 读取原始配置（带前缀 casassistant_）：
    cfg = PluginManager().get_plugin_config("casassistant")
 """
+import threading
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.log import logger
+
+try:  # HTTP 探测连接状态
+    import requests
+except ImportError:  # 宿主通常自带 requests
+    requests = None  # type: ignore
 
 try:  # 新版宿主
     from app.sdk.plugin.base import _PluginBase
@@ -36,7 +42,7 @@ CALL_HELP_TEXT = """其它插件无需各自填写 CAS 服务地址，直接读�
   from app.runtime.extensions.plugin_manager import PluginManager
 
   cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
-  # cfg = {"enabled": bool, "host": str, "api_key": str, "path_mapping": [...]}
+  # cfg = {"enabled": bool, "host": str, "api_key": str}
   if cfg and cfg.get("enabled") and cfg.get("host"):
       host = cfg["host"]
       api_key = cfg["api_key"]
@@ -50,31 +56,12 @@ CALL_HELP_TEXT = """其它插件无需各自填写 CAS 服务地址，直接读�
 """
 
 
-def _parse_path_mapping(config_str: str) -> List[Dict[str, str]]:
-    """解析路径映射：每行 `local#account_id#account_name`（account_name 可选）。"""
-    mappings: List[Dict[str, str]] = []
-    if not config_str:
-        return mappings
-    for line in config_str.split("\n"):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = [p.strip() for p in line.split("#")]
-        if len(parts) >= 2 and parts[0] and parts[1]:
-            mappings.append({
-                "path": parts[0],
-                "account_id": parts[1],
-                "account_name": parts[2] if len(parts) > 2 else parts[1],
-            })
-    return mappings
-
-
 class casassistant(_PluginBase):
     # 插件元信息
     plugin_name = "CAS助手"
-    plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key、路径映射等），供其它插件统一读取，避免各插件重复填写 CAS 服务地址。"
+    plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key），供其它插件统一读取，避免各插件重复填写 CAS 服务地址；启动时探测并在日志中显示连接状态。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -85,16 +72,38 @@ class casassistant(_PluginBase):
     _cas_enabled: bool = False
     _cas_host: Optional[str] = None
     _cas_api_key: Optional[str] = None
-    _cas_mappings: List[Dict[str, str]] = []
+    _cas_connected: Optional[bool] = None  # 最近一次连接探测结果
 
     def init_plugin(self, config: dict = None):
         cfg = config or {}
         self._cas_enabled = bool(cfg.get("enabled", False))
         self._cas_host = (cfg.get("cas_host", "") or "").strip()
         self._cas_api_key = (cfg.get("cas_api_key", "") or "").strip()
-        self._cas_mappings = _parse_path_mapping(cfg.get("cas_path_mapping", ""))
-        logger.info("CAS助手：已加载配置（启用=%s，host=%s，映射 %d 条）",
-                    self._cas_enabled, bool(self._cas_host), len(self._cas_mappings))
+        logger.info("CAS助手：已加载配置（启用=%s，host=%s）",
+                    self._cas_enabled, bool(self._cas_host))
+        # 后台探测连接状态并写入日志，避免阻塞插件加载
+        threading.Thread(target=self._check_and_log_connection, daemon=True).start()
+
+    def _check_and_log_connection(self) -> None:
+        """探测 CAS 服务连通性，并在日志中输出连接状态。"""
+        if not self._cas_enabled:
+            logger.info("CAS助手：插件未启用，跳过连接检测")
+            return
+        host = (self._cas_host or "").strip()
+        if not host:
+            logger.info("CAS助手：未配置 CAS 服务地址，跳过连接检测")
+            return
+        url = host if host.lower().startswith(("http://", "https://")) else f"http://{host}"
+        if requests is None:
+            logger.warning("CAS助手：当前环境缺少 requests，无法检测连接状态")
+            return
+        try:
+            resp = requests.get(url, timeout=5, verify=False)
+            self._cas_connected = True
+            logger.info("CAS助手：CAS 服务连接正常（%s，HTTP %s）", url, resp.status_code)
+        except Exception as err:
+            self._cas_connected = False
+            logger.warning("CAS助手：CAS 服务连接异常（%s）：%s", url, err)
 
     # ---------------- 宿主基类要求 ----------------
 
@@ -184,32 +193,12 @@ class casassistant(_PluginBase):
                             }
                         ],
                     },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {"cols": 12},
-                                "content": [
-                                    {
-                                        "component": "VTextarea",
-                                        "props": {
-                                            "model": "cas_path_mapping",
-                                            "label": "路径映射（可选，每行 local#account_id#account_name）",
-                                            "rows": 3,
-                                        },
-                                    }
-                                ],
-                            }
-                        ],
-                    }
                 ],
             }
         ], {
             "enabled": False,
             "cas_host": "",
             "cas_api_key": "",
-            "cas_path_mapping": "",
         }
 
     def get_page(self) -> Optional[List[dict]]:
@@ -234,7 +223,6 @@ class casassistant(_PluginBase):
             "enabled": bool,
             "host": str,
             "api_key": str,
-            "path_mapping": List[Dict[str, str]],
         }
 
         其它插件调用示例：
@@ -245,7 +233,6 @@ class casassistant(_PluginBase):
             "enabled": self._cas_enabled,
             "host": self._cas_host or "",
             "api_key": self._cas_api_key or "",
-            "path_mapping": self._cas_mappings,
         }
 
     def stop_service(self):
