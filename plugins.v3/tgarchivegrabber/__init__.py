@@ -223,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG群组压缩包抓取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -352,7 +352,7 @@ class TgArchiveGrabber(_PluginBase):
                 _sw("enabled", "启用插件", md=12),
             ),
             _row(
-                _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "password", md=6),
+                _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "text", md=6),
                 _tf("chat_id", "Chat ID（必填）",
                     "只处理这个用户转发的压缩包；给机器人发条消息后点「测试连接」可自动获取",
                     "", "text", md=6),
@@ -360,9 +360,7 @@ class TgArchiveGrabber(_PluginBase):
             _row(
                 _tf("proxy", "代理地址",
                     "访问 Telegram 用；留空则用 MoviePilot 系统代理。支持 http / socks5",
-                    "socks5://127.0.0.1:7890", md=8),
-                _tf("bot_api_base", "Bot API 地址", "自建服务器可解除 20MB 限制",
-                    "https://api.telegram.org", md=4),
+                    "socks5://127.0.0.1:7890", md=12),
             ),
             _row(
                 _tf("download_dir", "下载目录",
@@ -701,13 +699,18 @@ class TgArchiveGrabber(_PluginBase):
             self._log("守护线程已启动")
 
     def _worker_loop(self) -> None:
-        """长轮询循环：getUpdates 挂起等待新消息，收到立即处理；异常退避后重试。"""
+        """长轮询循环：getUpdates 挂起等待新消息，收到立即处理；异常退避降噪后重试。"""
         current = threading.current_thread()
+        fail_count = 0
         while not self._stop_event.is_set() and self._thread is current:
             try:
                 self._scan_once()
+                fail_count = 0
             except Exception as err:  # noqa: BLE001
-                self._log(f"扫描出现异常：{err}，3 秒后重试", "error")
+                fail_count += 1
+                # 连续失败只记第 1 次和之后每 10 次，避免网络抖动刷屏
+                if fail_count == 1 or fail_count % 10 == 0:
+                    self._log(f"连接异常（连续 {fail_count} 次）：{err}", "error")
                 self._trigger.wait(timeout=3)
             self._trigger.clear()
         self._log("守护线程已退出")
@@ -760,26 +763,26 @@ class TgArchiveGrabber(_PluginBase):
             self._last_scan = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             try:
                 cursors = self._scan_bot(cursors, processed, failures, stats)
-            except Exception as err:  # noqa: BLE001
-                self._log(f"拉取群组/频道消息失败：{err}", "error")
             finally:
                 self._save_cursors(cursors)
                 self._save_processed(processed)
                 trimmed = dict(list(failures.items())[-MAX_FAILURES:])
                 self.save_data("failures", trimmed)
                 self._flush_pending_parts()
-            summary = (
-                f"扫描完成：处理 {stats['handled']} 个压缩包，"
-                f"成功 {stats['ok']}，失败 {stats['fail']}，跳过 {stats['skipped']}"
-            )
-            self._last_result = summary
-            self._log(summary)
-            if stats["ok"] or stats["fail"]:
-                self._notify(
-                    f"{self.plugin_name} 扫描完成",
-                    f"成功 {stats['ok']} 个，失败 {stats['fail']} 个，"
-                    f"输出目录：{self._extract_dir()}",
+            # 空轮不写日志不通知，避免长轮询循环刷屏；只有实际处理了压缩包才记录
+            if stats["handled"] or stats["skipped"]:
+                summary = (
+                    f"扫描完成：处理 {stats['handled']} 个压缩包，"
+                    f"成功 {stats['ok']}，失败 {stats['fail']}，跳过 {stats['skipped']}"
                 )
+                self._last_result = summary
+                self._log(summary)
+                if stats["ok"] or stats["fail"]:
+                    self._notify(
+                        f"{self.plugin_name} 扫描完成",
+                        f"成功 {stats['ok']} 个，失败 {stats['fail']} 个，"
+                        f"输出目录：{self._extract_dir()}",
+                    )
         finally:
             self._scanning = False
             self._scan_lock.release()
