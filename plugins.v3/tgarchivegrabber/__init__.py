@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-TG 群组 / 频道压缩包抓取插件（MoviePilot V3）
+TG 机器人压缩包抓取插件（MoviePilot V3）
 
 作者：gldl137
 仓库：MoviePilot-Plugins（https://github.com/gldl137/MoviePilot-Plugins）
 
 功能：
-    - 监控指定 Telegram 群组（普通群、超级群）或频道的新消息，发现压缩包附件后自动下载解压。
-    - 支持两种接入方式：Telethon 用户账号（推荐，可读取账号已加入的任意群组/频道，无大小限制）
-      与 Telegram Bot API（需把 Bot 加入群组、频道设为管理员，并关闭隐私模式才能收到普通消息；
-      官方 API 限制单文件 20MB）。
+    - 基于 Telegram Bot API（只需 @BotFather 提供的 Token，无需开发者账号）：
+      把群组/频道里的压缩包转发给机器人，机器人收到后立刻下载压缩包、
+      解压到「下载目录下的 completed 子目录」（所有文件平铺，不保留包内文件夹结构），
+      再删除压缩包（分卷包在所有分卷到齐并解压成功后统一删除）。
     - 支持 zip / tar / gz / 7z / rar 及常见分卷包，内置路径穿越与解压炸弹防护。
     - 记录已处理消息、失败重试、历史记录与通知，提供详情页日志和手动触发接口。
 
@@ -32,7 +32,6 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse
 
 try:
     # V3 稳定入口（与已上线插件 TgMediaCenter 一致）；顶层只依赖 app.sdk.*
@@ -76,15 +75,9 @@ DEFAULT_EXTS = (
     ".001,.part1.rar,.z01,.r00"
 )
 
-EXISTING_ACTIONS = {
-    "skip": "跳过（已存在则不处理）",
-    "overwrite": "覆盖（清空同名输出子目录）",
-    "rename": "重命名（自动追加序号）",
-}
-
-MODES = {
-    "user": "用户账号（Telethon，推荐）",
-    "bot": "机器人（Bot API）",
+CONFLICT_ACTIONS = {
+    "skip": "跳过已有",
+    "overwrite": "覆盖已有",
 }
 
 # 分卷包：捕获基础名、卷号与后缀类型
@@ -205,29 +198,10 @@ def _archive_group(filename: str) -> Tuple[str, bool, bool]:
     return stem, False, True
 
 
-def _proxy_runtime_missing() -> bool:
-    """检测 Telethon 的代理软依赖 python-socks 是否缺失。"""
-    try:
-        import python_socks  # noqa: F401
-        return False
-    except ImportError:
-        return True
-
-
 def _environment() -> Tuple[List[str], str]:
     """检查可选依赖与系统解压工具，返回 (缺失项, 提示文本)。"""
     missing: List[str] = []
     tips: List[str] = []
-    try:
-        import telethon  # noqa: F401
-    except ImportError:
-        missing.append("telethon（用户账号模式必需）")
-        tips.append("请在插件目录声明的 pyproject.toml 依赖安装后重启 MoviePilot。")
-    if _proxy_runtime_missing():
-        tips.append(
-            "缺少 python-socks[asyncio]：Telethon 会静默忽略代理直连 Telegram，"
-            "表现为代理配了却连接超时，请安装依赖后重启。"
-        )
     try:
         import pyzipper  # noqa: F401
     except ImportError:
@@ -245,9 +219,9 @@ class TgArchiveGrabber(_PluginBase):
 
     # ---- 插件元信息（必须写成字面量：宿主会静态解析类属性做加载校验） ----
     plugin_name = "TG群组压缩包抓取"
-    plugin_desc = "监控 TG 群组 / 频道新消息中的压缩包，自动下载并解压到指定目录。"
+    plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.5"
+    plugin_version = "1.3.0"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -256,16 +230,12 @@ class TgArchiveGrabber(_PluginBase):
 
     _default_config: Dict[str, Any] = {
         "enabled": False,
-        "mode": "user",
         "channels": "",
-        "api_id": "",
-        "api_hash": "",
-        "session_string": "",
         "proxy": "",
         "bot_token": "",
         "bot_api_base": "https://api.telegram.org",
+        "bot_private": False,
         "download_dir": "/downloads/tgarchives",
-        "extract_dir": "/downloads/tgarchives/extracted",
         "archive_ext": DEFAULT_EXTS,
         "keywords": "",
         "exclude_keywords": "",
@@ -273,14 +243,12 @@ class TgArchiveGrabber(_PluginBase):
         "min_size_mb": 0,
         "max_size_mb": 0,
         "max_files_per_round": 20,
-        "scan_limit": 100,
         "interval": 60,
         "backfill": False,
         "backfill_count": 20,
         "extract_password": "",
-        "per_message_dir": True,
-        "existing_action": "skip",
-        "delete_archive": False,
+        "conflict": "skip",
+        "delete_archive": True,
         "parts_wait_seconds": 120,
         "max_extract_mb": 4096,
         "inner_ext": "",
@@ -305,7 +273,6 @@ class TgArchiveGrabber(_PluginBase):
         self._last_scan = ""
         self._last_result = ""
         self._pending_parts: Dict[str, Dict[str, Any]] = {}
-        self._resolved_entities: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # 生命周期
@@ -315,26 +282,15 @@ class TgArchiveGrabber(_PluginBase):
         self.stop_service()
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
-        # 会话串属于自管状态：宿主 update_config 是整份覆盖，前端若不回传 password
-        # 字段就可能把它清空，因此同步持久化到插件数据目录（参照 TgMediaCenter 的做法）。
-        configured_session = str(self._config.get("session_string") or "").strip()
-        if configured_session:
-            self.save_data("tg_session_string", configured_session)
-        # 配置/账号可能变化，实体缓存里的 access_hash 属于旧账号，需失效
-        self._resolved_entities = {}
         self._enabled = bool(self._config.get("enabled"))
         self._pending_parts = self.get_data("pending_parts") or {}
         if not isinstance(self._pending_parts, dict):
             self._pending_parts = {}
         self._log(
-            f"初始化完成：启用={self._enabled}，模式={self._cfg_str('mode', 'user')}，"
+            f"初始化完成：启用={self._enabled}，Bot 私聊转发="
+            f"{'开' if self._cfg_bool('bot_private') else '关'}，"
             f"监控会话数={len(self._channels())}，间隔={self._cfg_int('interval', 60, MIN_INTERVAL)}秒"
         )
-        if self._enabled and self._proxy_url() and _proxy_runtime_missing():
-            self._log(
-                "已配置代理但缺少 python-socks[asyncio]：Telethon 会静默忽略代理直连，"
-                "请安装依赖后重启，否则连接大概率超时", "warning"
-            )
         if self._enabled:
             problem = self._validate()
             if problem:
@@ -388,10 +344,11 @@ class TgArchiveGrabber(_PluginBase):
         cfgs = [
             _alert(
                 f"{self.plugin_name}：{self.plugin_desc} "
-                "支持普通群组、超级群与频道；用户账号模式需 api_id / api_hash 与 StringSession"
-                "（可用插件目录 tools/tg_login.py 生成，脚本会列出已加入群组的 ID）；"
-                "Bot 模式需把机器人加入群组（频道设为管理员），并在 @BotFather 用 /setprivacy "
-                "关闭隐私模式才能收到群组普通消息；官方 Bot API 只能下载 20MB 以内文件。"
+                "基于 Telegram Bot API，只需 @BotFather 给的 Token，无需开发者账号。"
+                "把群里的压缩包转发给机器人，机器人下载后立刻解压：文件平铺到「下载目录/completed」，"
+                "不保留包内文件夹；同名文件可跳过/覆盖，解压成功后可删除原包（开关），"
+                "分卷包待全部分卷到齐后统一处理。"
+                "官方 Bot API 单文件限 20MB，超限请自建 Bot API Server 或把压缩包拆成小于 20MB 的分卷转发。"
             ),
             _row(
                 _sw("enabled", "启用插件"),
@@ -400,33 +357,30 @@ class TgArchiveGrabber(_PluginBase):
                 _sw("clear_records", "清空记录", "清空去重/游标/历史，文件将可重新处理", md=3),
             ),
             _row(
-                _sel("mode", "接入方式", MODES, "推荐用户账号模式", md=4),
                 _tf("channels", "监控群组 / 频道",
                     "一行或逗号分隔，如 @xxx、-1001234567890（超级群/频道）、-123456789（普通群）；"
-                    "可用 tools/tg_login.py 查询 ID",
+                    "开启「处理机器人私聊转发」后可留空",
                     "@groupname", md=8),
             ),
             _row(
-                _tf("api_id", "API ID（用户账号）", "my.telegram.org 申请", md=4),
-                _tf("api_hash", "API Hash（用户账号）", "", "", "password", md=4),
-                _tf("session_string", "StringSession（用户账号）", "tools/tg_login.py 生成后粘贴",
-                    "", "password", md=4),
-            ),
-            _row(
-                _tf("bot_token", "Bot Token（机器人模式）",
+                _tf("bot_token", "Bot Token",
                     "从 @BotFather 获取；群组需 /setprivacy 关闭隐私模式", "", "password", md=6),
                 _tf("bot_api_base", "Bot API 地址", "自建 Bot API Server 可解除 20MB 限制",
                     "https://api.telegram.org", md=6),
             ),
             _row(
+                _sw("bot_private", "处理机器人私聊转发",
+                    "开启后把压缩包私聊转发给机器人即可下载解压，此时「监控群组 / 频道」可留空", md=4),
+            ),
+            _row(
                 _tf("proxy", "代理地址", "留空则尝试读取 MoviePilot 系统代理；支持 http/socks5",
                     "socks5://127.0.0.1:7890", md=6),
                 _tf("interval", "轮询间隔（秒）", "每轮扫描的最小间隔，最小 15 秒", "60", md=3),
-                _tf("scan_limit", "单轮最多拉取消息", "防止首次启动时一次拉取过多历史消息", "100", md=3),
             ),
             _row(
-                _tf("download_dir", "压缩包保存目录", "容器内的绝对路径", "/downloads/tgarchives", md=6),
-                _tf("extract_dir", "解压输出目录", "容器内的绝对路径", "/downloads/tgarchives/extracted", md=6),
+                _tf("download_dir", "压缩包保存目录",
+                    "容器内的绝对路径；解压文件固定输出到该目录下的 completed 子目录",
+                    "/downloads/tgarchives", md=12),
             ),
             _row(
                 _tf("archive_ext", "压缩包后缀", "逗号分隔，留空使用默认值", DEFAULT_EXTS, md=12),
@@ -445,13 +399,12 @@ class TgArchiveGrabber(_PluginBase):
             ),
             _row(
                 _tf("extract_password", "解压密码", "留空表示无密码，支持 7z/RAR/ZIP", "", "password", md=4),
-                _sel("existing_action", "同名输出处理", EXISTING_ACTIONS, "", md=4),
-                _tf("inner_ext", "仅保留的文件后缀", "解压后仅保留指定后缀，留空保留全部", ".mp4,.mkv,.srt", md=4),
+                _sel("conflict", "同名文件", CONFLICT_ACTIONS, "目标文件已存在时的处理方式", md=4),
+                _sw("delete_archive", "解压后删除压缩包", "解压成功后删除原压缩包（分卷包待全部解压成功后统一删除）", md=4),
             ),
             _row(
-                _sw("per_message_dir", "每个包独立子目录", "输出目录下按压缩包名建子目录"),
-                _sw("delete_archive", "完成后删除压缩包", "解压成功后删除已下载的压缩包"),
-                _sw("backfill", "首次回溯历史消息", "启用后首轮处理最近 N 条消息", md=3),
+                _tf("inner_ext", "仅保留的文件后缀", "解压后仅保留指定后缀，留空保留全部", ".mp4,.mkv,.srt", md=4),
+                _sw("backfill", "首次回溯历史消息", "启用后首轮处理最近 N 条消息", md=4),
             ),
             _row(
                 _tf("backfill_count", "回溯条数", "首次启动只回溯最近 N 条消息", "20", md=4),
@@ -474,6 +427,32 @@ class TgArchiveGrabber(_PluginBase):
                        or [{"component": "div",
                             "props": {"class": "text-medium-emphasis"},
                             "text": "暂无日志，点击「立即扫描」或「测试连接」后显示。"}])
+        history_rows: List[Dict[str, Any]] = []
+        for it in self._load_history():
+            status = str(it.get("status", ""))
+            color = "success" if status == "成功" else ("error" if status == "失败" else "grey")
+            history_rows.append({
+                "component": "tr",
+                "content": [
+                    {"component": "td", "props": {"width": "190px", "class": "text-no-wrap"},
+                     "text": str(it.get("time", ""))},
+                    {"component": "td", "text": str(it.get("chat", ""))},
+                    {"component": "td", "text": str(it.get("filename", ""))},
+                    {"component": "td", "props": {"width": "90px"}, "content": [
+                        {"component": "VChip", "props": {"color": color, "size": "small"},
+                         "text": status or "未知"},
+                    ]},
+                    {"component": "td", "props": {"width": "80px"},
+                     "text": str(it.get("size_text", ""))},
+                    {"component": "td", "text": str(it.get("message", ""))},
+                ],
+            })
+        if not history_rows:
+            history_rows = [{
+                "component": "tr",
+                "content": [{"component": "td", "props": {"colspan": 6, "class": "text-center"},
+                             "text": "暂无处理记录（转发压缩包并解压成功后会记录在此）"}],
+            }]
         worker_alive = bool(self._thread and self._thread.is_alive())
         state_text = (
             f"插件状态：{'已启用' if self._enabled else '未启用'}；"
@@ -482,7 +461,7 @@ class TgArchiveGrabber(_PluginBase):
             f"上次扫描：{self._last_scan or '尚未扫描'}"
         )
         dep_text = (f"依赖检查：缺失 {'、'.join(missing)}。{tips}" if missing
-                    else "依赖检查：Telethon 已就绪。" + (f" {tips}" if tips else ""))
+                    else "依赖检查：基础依赖已就绪。" + (f" {tips}" if tips else ""))
 
         def button(text: str, path: str, icon: str, color: str = "primary") -> Dict[str, Any]:
             return {
@@ -515,7 +494,7 @@ class TgArchiveGrabber(_PluginBase):
                     _alert(dep_text, "error" if missing else "info", "mb-3"),
                     _alert(f"群组/频道：{'、'.join(self._channels()) or '未配置'}；"
                            f"下载目录：{self._cfg_str('download_dir')}；"
-                           f"解压目录：{self._cfg_str('extract_dir')}；"
+                           f"解压目录：{self._extract_dir()}（仅文件，解压后删除压缩包）；"
                            f"最近结果：{self._last_result or '无'}", "info", "mb-3"),
                     _row(
                         button("立即扫描", "/scan", "mdi-play"),
@@ -530,22 +509,31 @@ class TgArchiveGrabber(_PluginBase):
                 {"component": "VCardText", "props": {"style": "max-height:320px;overflow:auto"},
                  "content": log_content},
             ]},
-            {"component": "VCard", "props": {"variant": "flat", "class": "mt-4"}, "content": [
+            {"component": "VCard", "props": {"variant": "outlined", "class": "mt-4"}, "content": [
                 {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "处理记录"},
+                {"component": "VCardText",
+                 "text": f"共 {len(history_rows)} 条（最多保留 {MAX_HISTORY} 条，最新在上）。"},
+            ]},
+            {"component": "VCard", "props": {"variant": "outlined", "class": "mt-4"}, "content": [
+                {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "记录列表"},
                 {"component": "VCardText", "content": [{
                     "component": "VTable",
-                    "props": {
-                        "api": f"plugin/{prefix}/history",
-                        "headers": [
-                            {"title": "时间", "key": "time"},
-                            {"title": "群组/频道", "key": "chat"},
-                            {"title": "文件", "key": "filename"},
-                            {"title": "大小", "key": "size_text"},
-                            {"title": "状态", "key": "status"},
-                            {"title": "说明", "key": "message"},
-                        ],
-                        "itemKey": "key",
-                    },
+                    "props": {"density": "compact", "hover": True,
+                              "fixed-header": True, "height": "600px"},
+                    "content": [
+                        {"component": "thead", "content": [
+                            {"component": "tr", "content": [
+                                {"component": "th", "props": {"width": "190px", "class": "text-no-wrap"},
+                                 "text": "时间"},
+                                {"component": "th", "text": "群组/频道"},
+                                {"component": "th", "text": "压缩包"},
+                                {"component": "th", "props": {"width": "90px"}, "text": "状态"},
+                                {"component": "th", "props": {"width": "80px"}, "text": "大小"},
+                                {"component": "th", "text": "说明"},
+                            ]}
+                        ]},
+                        {"component": "tbody", "content": history_rows},
+                    ],
                 }]},
             ]},
         ]
@@ -639,11 +627,10 @@ class TgArchiveGrabber(_PluginBase):
         tools = {name: shutil.which(name) for name in ("unar", "unrar", "7z", "bsdtar")}
         lines = [
             f"Python：{sys.version.split()[0]}，解释器：{sys.executable}",
-            f"模式：{self._cfg_str('mode', 'user')}；群组/频道：{self._channels() or '未配置'}",
+            f"Bot 私聊转发：{'开启' if self._cfg_bool('bot_private') else '关闭'}；"
+            f"群组/频道：{self._channels() or '未配置'}",
             f"发送者白名单：{_split_list(self._config.get('senders')) or '全部'}",
             f"代理：{self._proxy_url() or '未设置'}",
-            f"代理软依赖 python-socks：{'缺失' if _proxy_runtime_missing() else '已安装'}",
-            f"会话串：{'插件数据目录（已持久化）' if self.get_data('tg_session_string') else ('配置页' if self._cfg_str('session_string') else '未设置')}",
             f"系统解压工具：{tools}",
             f"缺失依赖：{missing or '无'}",
             f"提示：{tips or '无'}",
@@ -694,18 +681,13 @@ class TgArchiveGrabber(_PluginBase):
         """读取布尔配置。"""
         return bool(self._config.get(key, default))
 
-    def _session_string(self) -> str:
-        """读取会话串：优先插件数据目录中的持久值，回退配置页填写的值。"""
-        stored = str(self.get_data("tg_session_string") or "").strip()
-        return stored or self._cfg_str("session_string")
-
     def _channels(self) -> List[str]:
         """返回配置的频道列表（规范化 @ 前缀）。"""
         chats: List[str] = []
         for raw in _split_list(self._config.get("channels")):
             chat = raw.strip().rstrip("/")
             if chat.startswith(("https://t.me/+", "t.me/+")):
-                pass  # 邀请链接原样交给 Telethon 解析
+                pass  # Bot API 不支持邀请链接，需填 @用户名或数字 ID
             elif chat.startswith("https://t.me/"):
                 chat = "@" + chat.split("https://t.me/", 1)[1]
             elif chat.startswith("t.me/"):
@@ -726,26 +708,17 @@ class TgArchiveGrabber(_PluginBase):
         return Path(self._cfg_str("download_dir") or "/downloads/tgarchives")
 
     def _extract_dir(self) -> Path:
-        """解压输出根目录。"""
-        return Path(self._cfg_str("extract_dir") or "/downloads/tgarchives/extracted")
+        """解压输出目录：固定在下载目录下的 completed 子目录。"""
+        return self._download_dir() / "completed"
 
     def _validate(self) -> Optional[str]:
         """校验运行必需的凭据与目录，返回错误说明或 None。"""
-        if not self._channels():
-            return "未配置监控群组 / 频道"
-        mode = self._cfg_str("mode", "user")
-        if mode == "user":
-            if not self._cfg_str("api_id") or not self._cfg_str("api_hash"):
-                return "用户账号模式需要填写 API ID 与 API Hash"
-            if not self._session_string():
-                return "用户账号模式需要填写 StringSession（可用 tools/tg_login.py 生成）"
-        elif mode == "bot":
-            if not self._cfg_str("bot_token"):
-                return "机器人模式需要填写 Bot Token"
-        else:
-            return f"未知接入方式：{mode}"
-        if not self._cfg_str("download_dir") or not self._cfg_str("extract_dir"):
-            return "需要填写压缩包保存目录与解压输出目录"
+        if not self._cfg_str("bot_token"):
+            return "需要填写 Bot Token（从 @BotFather 获取）"
+        if not self._channels() and not self._cfg_bool("bot_private"):
+            return "需配置监控群组/频道，或开启「处理机器人私聊转发」"
+        if not self._cfg_str("download_dir"):
+            return "需要填写压缩包保存目录"
         return None
 
     def _log(self, text: str, level: str = "info") -> None:
@@ -900,12 +873,8 @@ class TgArchiveGrabber(_PluginBase):
             processed = self._load_processed()
             failures = self._load_failures()
             self._last_scan = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            mode = self._cfg_str("mode", "user")
             try:
-                if mode == "user":
-                    cursors = self._scan_telethon(cursors, processed, failures, stats)
-                else:
-                    cursors = self._scan_bot(cursors, processed, failures, stats)
+                cursors = self._scan_bot(cursors, processed, failures, stats)
             except Exception as err:  # noqa: BLE001
                 self._log(f"拉取群组/频道消息失败：{err}", "error")
             finally:
@@ -946,235 +915,10 @@ class TgArchiveGrabber(_PluginBase):
             system_proxy = system_proxy.get("https") or system_proxy.get("http") or ""
         return str(system_proxy or "").strip() or ""
 
-    def _telethon_proxy(self) -> Optional[tuple]:
-        """把代理 URL 转成 Telethon 需要的 (type, host, port, ...) 元组。"""
-        raw = self._proxy_url()
-        if not raw:
-            return None
-        parsed = urlparse(raw if "://" in raw else "http://" + raw)
-        scheme = (parsed.scheme or "").lower()
-        if scheme.startswith("socks5"):
-            ptype, default_port = "socks5", 1080
-        elif scheme.startswith("socks4"):
-            ptype, default_port = "socks4", 1080
-        elif scheme.startswith("http"):
-            ptype, default_port = "http", 8080
-        else:
-            self._log(f"不支持的代理协议：{scheme}，已忽略", "warning")
-            return None
-        if not parsed.hostname:
-            return None
-        proxy: List[Any] = [ptype, parsed.hostname, parsed.port or default_port]
-        if parsed.username:
-            proxy += [True, parsed.username, parsed.password or ""]
-        return tuple(proxy)
-
     def _requests_proxies(self) -> Optional[Dict[str, str]]:
         """把代理 URL 转成 requests 的 proxies 字典。"""
         raw = self._proxy_url()
         return {"http": raw, "https": raw} if raw else None
-
-    # ------------------------------------------------------------------
-    # Telegram 接入：用户账号（Telethon）
-    # ------------------------------------------------------------------
-    def _resolve_entity(self, client: Any, chat: str) -> Any:
-        """
-        解析群组 / 频道实体并缓存结果。
-
-        普通群 ID 可能是 ``-123456`` / ``123456``，超级群 / 频道是 ``-100123...``，
-        依次尝试多种形式；StringSession 不保存 entity cache，全新会话直接用数字 ID
-        解析会失败，因此最后按 TgMediaCenter 的 ``prime_updates`` 思路遍历对话列表
-        预热并匹配。结果缓存下来，避免每轮轮询都重复预热触发限流。
-        """
-        cache: Dict[str, Any] = getattr(self, "_resolved_entities", None) or {}
-        self._resolved_entities = cache
-        cached = cache.get(chat)
-        if cached is not None:
-            return cached
-        value = str(chat or "").strip()
-        if re.fullmatch(r"-?\d+", value):
-            number = int(value)
-            candidates: List[Any] = [number]
-            if number < 0 and not value.startswith("-100"):
-                candidates.append(-number)
-            elif number > 0:
-                candidates.append(-number)
-        else:
-            candidates = [value]
-        errors: List[str] = []
-        for candidate in candidates:
-            try:
-                entity = client.get_entity(candidate)
-                cache[chat] = entity
-                return entity
-            except Exception as err:  # noqa: BLE001 - 依次尝试其它 ID 形式
-                errors.append(f"{candidate}: {err}")
-        try:
-            for dialog in client.iter_dialogs(limit=800):
-                entity = dialog.entity
-                entity_id = getattr(entity, "id", None)
-                if entity_id is None:
-                    continue
-                raw_id = abs(int(entity_id))
-                variants = {raw_id, -raw_id, int(f"-100{raw_id}")}
-                username = getattr(entity, "username", None)
-                for candidate in candidates:
-                    if isinstance(candidate, int) and candidate in variants:
-                        cache[chat] = entity
-                        return entity
-                    if (isinstance(candidate, str) and username
-                            and candidate.lstrip("@").lower() == str(username).lower()):
-                        cache[chat] = entity
-                        return entity
-        except Exception as err:  # noqa: BLE001 - 预热失败时给出可读错误
-            errors.append(f"iter_dialogs: {err}")
-        raise RuntimeError(
-            f"无法解析群组/频道 {value}（请确认账号已加入该会话）："
-            + " | ".join(errors)
-        )
-
-    @staticmethod
-    def _latest_message_id(client: Any, entity: Any) -> int:
-        """读取群组/频道最新消息 ID，兼容 Telethon 返回列表或单对象的不同版本。"""
-        latest = client.get_messages(entity, limit=1)
-        if isinstance(latest, (list, tuple)):
-            return int(latest[0].id) if latest else 0
-        return int(getattr(latest, "id", 0) or 0)
-
-    def _scan_telethon(self, cursors: Dict[str, int], processed: set,
-                       failures: Dict[str, int], stats: Dict[str, int]) -> Dict[str, int]:
-        """用 Telethon 逐个群组/频道拉取新消息，下载闭包在连接上下文内执行。"""
-        try:
-            from telethon import TelegramClient
-            from telethon.sessions import StringSession
-        except ImportError:
-            self._log("缺少 telethon 依赖，用户账号模式不可用（请安装插件声明的依赖）", "error")
-            return cursors
-        client = TelegramClient(
-            StringSession(self._session_string()),
-            int(self._cfg_str("api_id")),
-            self._cfg_str("api_hash"),
-            proxy=self._telethon_proxy(),
-            connection_retries=2,
-            retry_delay=1,
-            timeout=30,
-        )
-        max_round = self._cfg_int("max_files_per_round", 20, 1)
-        scan_limit = self._cfg_int("scan_limit", 100, 1)
-        backfill = self._cfg_bool("backfill")
-        backfill_count = self._cfg_int("backfill_count", 20, 0)
-        with client:
-            for chat in self._channels():
-                if self._stop_event.is_set():
-                    break
-                ckey = f"user:{chat}"
-                try:
-                    entity = self._resolve_entity(client, chat)
-                except Exception as err:  # noqa: BLE001
-                    self._log(f"群组/频道 {chat} 无法访问：{err}", "warning")
-                    continue
-                cursor = cursors.get(ckey)
-                if cursor is None:
-                    latest_id = self._latest_message_id(client, entity)
-                    if latest_id <= 0:
-                        self._log(f"群组/频道 {chat} 无法读取最新消息，本轮跳过（避免误拉全量历史）",
-                                  "warning")
-                        continue
-                    cursor = max(0, latest_id - backfill_count) if backfill else latest_id
-                    self._log(
-                        f"群组/频道 {chat} 初始化游标：{cursor}（最新消息 {latest_id}，"
-                        f"{'回溯 ' + str(backfill_count) + ' 条' if backfill else '仅处理之后的新消息'}）"
-                    )
-                pulled = 0
-                try:
-                    messages = client.iter_messages(
-                        entity, min_id=cursor, reverse=True, limit=scan_limit
-                    )
-                    for msg in messages:
-                        if self._stop_event.is_set():
-                            break
-                        pulled += 1
-                        item = self._build_telethon_item(client, msg, chat)
-                        if item is None:
-                            cursor = max(cursor, int(msg.id))
-                            continue
-                        if not self._match_archive(item):
-                            cursor = max(cursor, item["sort_id"])
-                            stats["skipped"] += 1
-                            continue
-                        if stats["handled"] >= max_round:
-                            self._log(f"已达单轮处理上限 {max_round}，剩余消息留到下一轮")
-                            break
-                        stats["handled"] += 1
-                        if self._process_item(item, processed, failures, stats):
-                            cursor = max(cursor, item["sort_id"])
-                        else:
-                            self._log("该消息处理失败，保留游标下轮重试，继续处理后续消息")
-                except Exception as err:  # noqa: BLE001
-                    self._log(f"群组/频道 {chat} 遍历消息出错：{err}", "error")
-                cursors[ckey] = cursor
-                if pulled:
-                    self._log(f"群组/频道 {chat} 本轮拉取 {pulled} 条新消息，游标={cursor}")
-        return cursors
-
-    def _build_telethon_item(self, client: Any, msg: Any, chat: str) -> Optional[Dict[str, Any]]:
-        """把 Telethon 消息转换成统一的待处理项。"""
-        name = ""
-        size = 0
-        try:
-            file_obj = getattr(msg, "file", None)
-            name = str(getattr(file_obj, "name", "") or "")
-            size = int(getattr(file_obj, "size", 0) or 0)
-        except Exception:  # noqa: BLE001
-            pass
-        if not name:
-            try:
-                for attr in getattr(getattr(msg, "document", None), "attributes", []) or []:
-                    candidate = getattr(attr, "file_name", None)
-                    if candidate:
-                        name = str(candidate)
-                        break
-            except Exception:  # noqa: BLE001
-                pass
-        if not name or not getattr(msg, "document", None):
-            return None
-        sender_tokens: set = set()
-        try:
-            sender_id = getattr(msg, "sender_id", None)
-            if sender_id:
-                sender_tokens.add(str(sender_id))
-        except Exception:  # noqa: BLE001
-            pass
-        try:
-            sender = getattr(msg, "sender", None)
-            username = getattr(sender, "username", None) if sender else None
-            if username:
-                sender_tokens.add("@" + str(username).lower())
-        except Exception:  # noqa: BLE001 - 实体缓存缺失时忽略
-            pass
-        date = ""
-        try:
-            date = msg.date.strftime("%Y-%m-%d %H:%M:%S") if getattr(msg, "date", None) else ""
-        except Exception:  # noqa: BLE001
-            pass
-
-        def download(target: Path, _msg: Any = msg, _client: Any = client) -> None:
-            saved = _client.download_media(_msg, file=str(target))
-            if not saved or not Path(str(saved)).exists():
-                raise RuntimeError("Telethon 未返回有效的下载文件")
-
-        return {
-            "key": f"user:{chat}:{msg.id}",
-            "sort_id": int(msg.id),
-            "chat": chat,
-            "msg_id": str(msg.id),
-            "filename": name,
-            "size": size,
-            "caption": str(getattr(msg, "message", "") or ""),
-            "date": date,
-            "sender_tokens": sender_tokens,
-            "download": download,
-        }
 
     # ------------------------------------------------------------------
     # Telegram 接入：Bot API
@@ -1197,11 +941,14 @@ class TgArchiveGrabber(_PluginBase):
         return data.get("result")
 
     def _bot_chat_matches(self, post: Dict[str, Any]) -> bool:
-        """Bot 模式下按群组/频道 ID、用户名或标题过滤更新。"""
+        """Bot 模式下按群组/频道过滤；开启私聊转发时放行机器人收到的私聊消息。"""
+        chat = post.get("chat") or {}
+        if (self._cfg_bool("bot_private")
+                and str(chat.get("type") or "").lower() == "private"):
+            return True
         allowed = self._channels()
         if not allowed:
-            return True
-        chat = post.get("chat") or {}
+            return False
         identifiers = {
             str(chat.get("id") or ""),
             str(chat.get("username") or "").lower(),
@@ -1255,12 +1002,14 @@ class TgArchiveGrabber(_PluginBase):
             except Exception as err:  # noqa: BLE001
                 raise RuntimeError(
                     f"getFile 失败：{err}（官方 Bot API 限制单文件 20MB，"
-                    "请改用用户账号模式或自建 Bot API Server）"
+                    "请把压缩包拆成小于 20MB 的分卷转发，或自建 Bot API Server）"
                 ) from err
-            file_path = (info or {}).get("file_path")
+            file_path = str((info or {}).get("file_path") or "")
             if not file_path:
                 raise RuntimeError("getFile 未返回 file_path")
-            url = f"{base}/file/bot{token}/{file_path}"
+            # 官方云 API 返回相对路径；自建 Bot API Server 返回以 / 开头的绝对路径
+            separator = "" if file_path.startswith("/") else "/"
+            url = f"{base}/file/bot{token}{separator}{file_path}"
             with requests.get(url, stream=True, timeout=(15, 180),
                               proxies=self._requests_proxies()) as response:
                 response.raise_for_status()
@@ -1339,43 +1088,7 @@ class TgArchiveGrabber(_PluginBase):
     def _test_connection(self) -> Dict[str, Any]:
         """测试凭据是否有效、群组/频道是否可访问，结果写入详情页日志。"""
         details: List[str] = []
-        mode = self._cfg_str("mode", "user")
         failed = False
-        if mode == "user":
-            try:
-                from telethon import TelegramClient
-                from telethon.sessions import StringSession
-            except ImportError:
-                return self._result(False, "缺少 telethon 依赖", details=["请先安装插件声明的依赖"])
-            client = TelegramClient(
-                StringSession(self._session_string()),
-                int(self._cfg_str("api_id")), self._cfg_str("api_hash"),
-                proxy=self._telethon_proxy(), connection_retries=2,
-                retry_delay=1, timeout=30,
-            )
-            try:
-                with client:
-                    me = client.get_me()
-                    details.append(
-                        f"登录账号：{getattr(me, 'first_name', '') or ''} "
-                        f"(@{getattr(me, 'username', '') or '无用户名'})"
-                    )
-                    for chat in self._channels():
-                        try:
-                            entity = self._resolve_entity(client, chat)
-                            title = getattr(entity, "title", None) or chat
-                            details.append(
-                                f"群组/频道 {chat} → {title}，最新消息 id="
-                                f"{self._latest_message_id(client, entity)}"
-                            )
-                        except Exception as err:  # noqa: BLE001
-                            failed = True
-                            details.append(f"群组/频道 {chat} 访问失败：{err}")
-                message = "连接测试完成" + (
-                    "（部分群组/频道不可访问）" if failed else "，全部群组/频道可访问")
-                return self._result(not failed, message, details=details)
-            except Exception as err:  # noqa: BLE001
-                return self._result(False, f"Telethon 连接失败：{err}", details=details)
         try:
             me = self._bot_api("getMe", {}) or {}
             details.append(f"Bot：@{me.get('username', '未知')} ({me.get('first_name', '')})")
@@ -1392,6 +1105,8 @@ class TgArchiveGrabber(_PluginBase):
                 except Exception as err:  # noqa: BLE001
                     failed = True
                     details.append(f"群组/频道 {chat} 访问失败：{err}")
+            if self._cfg_bool("bot_private"):
+                details.append("私聊转发已开启：把压缩包直接私聊发给机器人即可，无需配置群组/频道。")
             details.append(
                 "提示：群组中 Bot 需在 @BotFather 用 /setprivacy 关闭隐私模式才能收到普通消息；"
                 "频道需设为管理员才能收到 channel_post；官方 API 限制 20MB。"
@@ -1594,7 +1309,8 @@ class TgArchiveGrabber(_PluginBase):
             try:
                 self._log(f"分卷组 {stem} 等待结束，开始解压主卷 {main.name}")
                 self._extract_one(main, stem, item)
-                if self._cfg_bool("delete_archive"):
+                if self._cfg_bool("delete_archive", True):
+                    # _extract_one 已删除主卷；这里清掉同组其余分卷
                     group_prefix = _safe_name(stem).lower() + "."
                     for part in parts_dir.iterdir():
                         if part.is_file() and part.name.lower().startswith(group_prefix):
@@ -1617,39 +1333,29 @@ class TgArchiveGrabber(_PluginBase):
             self.save_data("pending_parts", self._pending_parts)
 
     def _extract_one(self, archive: Path, stem: str, item: Dict[str, Any]) -> None:
-        """把单个压缩包解压到临时目录，校验后再提交到最终输出目录。"""
-        root = self._extract_dir()
-        root.mkdir(parents=True, exist_ok=True)
-        action = self._cfg_str("existing_action", "skip") or "skip"
-        if action not in EXISTING_ACTIONS:
-            action = "skip"
-        base = _safe_name(stem) if self._cfg_bool("per_message_dir", True) else ""
-        final = root / base if base else root
-        if base and final.exists() and any(final.iterdir()):
-            if action == "skip":
-                self._log(f"输出目录已存在，跳过解压：{final}")
-                self._record(item, "跳过", f"输出目录已存在：{final}")
-                return
-            if action == "overwrite":
-                self._log(f"覆盖同名输出目录：{final}", "warning")
-                shutil.rmtree(final, ignore_errors=True)
-            elif action == "rename":
-                final = self._unique_dir(root, base)
-        temp = root / f".tg_tmp_{_safe_name(stem)}_{int(time.time() * 1000)}"
+        """解压到「下载目录/completed」：所有文件平铺、不建子目录；成功后删除压缩包。"""
+        final = self._extract_dir()
+        final.mkdir(parents=True, exist_ok=True)
+        # 临时目录放在下载目录而非 completed，避免临时文件混入结果目录
+        temp = self._download_dir() / f".tg_tmp_{_safe_name(stem)}_{int(time.time() * 1000)}"
         temp.mkdir(parents=True, exist_ok=True)
         try:
             count = self._extract_archive(archive, temp, self._cfg_str("extract_password"))
             kept, removed = self._apply_inner_filter(temp)
-            final.mkdir(parents=True, exist_ok=True)
-            self._commit_extract(temp, final, action)
+            conflict = self._cfg_str("conflict", "skip") or "skip"
+            if conflict not in CONFLICT_ACTIONS:
+                conflict = "skip"
+            written, skipped = self._flatten_files(temp, final, conflict)
             size_text = _human_size(item.get("size"))
             self._log(
                 f"解压成功 {archive.name}（{size_text}）→ {final}，"
-                f"文件 {count} 个，保留 {kept} 个"
+                f"包内文件 {count} 个，保留 {kept} 个，落盘 {written} 个"
+                + (f"，跳过同名 {skipped} 个" if skipped else "")
                 + (f"，过滤 {removed} 个" if removed else "")
             )
-            self._record(item, "成功", f"解压 {kept} 个文件 → {final}")
-            if self._cfg_bool("delete_archive") and not str(item.get("key", "")).startswith("parts:"):
+            self._record(item, "成功", f"平铺解压 {written} 个文件 → {final}"
+                         + (f"，跳过同名 {skipped} 个" if skipped else ""))
+            if self._cfg_bool("delete_archive", True):
                 try:
                     archive.unlink()
                     self._log(f"已删除压缩包 {archive.name}")
@@ -1671,39 +1377,26 @@ class TgArchiveGrabber(_PluginBase):
         })
 
     @staticmethod
-    def _unique_dir(root: Path, base: str) -> Path:
-        """为同名输出目录生成带序号的新目录。"""
-        for index in range(2, 1000):
-            candidate = root / f"{base}_{index}"
-            if not candidate.exists() or not any(candidate.iterdir()):
-                return candidate
-        return root / f"{base}_{int(time.time())}"
-
-    @staticmethod
-    def _unique_file(path: Path) -> Path:
-        """为同名输出文件生成带序号的新路径。"""
-        for index in range(2, 1000):
-            candidate = path.with_name(f"{path.stem}_{index}{path.suffix}")
-            if not candidate.exists():
-                return candidate
-        return path.with_name(f"{path.stem}_{int(time.time())}{path.suffix}")
-
-    @staticmethod
-    def _commit_extract(temp: Path, final: Path, action: str) -> None:
-        """把临时解压结果移动到最终目录，按策略处理同名文件。"""
-        for child in list(temp.iterdir()):
-            target = final / child.name
+    def _flatten_files(temp: Path, final: Path, conflict: str) -> Tuple[int, int]:
+        """
+        把临时目录内的所有文件平铺移动到最终目录：不保留任何子目录层级，只写文件。
+        同名文件按 conflict 处理：skip 跳过、overwrite 覆盖。返回 (落盘数, 跳过数)。
+        """
+        written = 0
+        skipped = 0
+        for source in sorted(p for p in temp.rglob("*") if p.is_file()):
+            target = final / _safe_name(source.name)
             if target.exists():
-                if action == "skip":
+                if conflict == "skip":
+                    skipped += 1
                     continue
-                if action == "rename":
-                    target = TgArchiveGrabber._unique_file(target)
-                elif action == "overwrite":
-                    if target.is_dir():
-                        shutil.rmtree(target, ignore_errors=True)
-                    else:
-                        target.unlink()
-            shutil.move(str(child), str(target))
+                try:
+                    target.unlink()
+                except OSError as err:
+                    raise RuntimeError(f"覆盖同名文件失败 {target.name}：{err}") from err
+            shutil.move(str(source), str(target))
+            written += 1
+        return written, skipped
 
     def _apply_inner_filter(self, dest: Path) -> Tuple[int, int]:
         """按配置仅保留指定后缀的文件，返回 (保留数, 过滤数)。"""
