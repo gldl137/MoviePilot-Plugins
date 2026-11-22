@@ -223,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.4"
+    plugin_version = "1.5.5"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -237,7 +237,6 @@ class TgArchiveGrabber(_PluginBase):
         "bot_api_base": "https://api.telegram.org",
         "chat_id": "",
         "download_dir": "/downloads/tgarchives",
-        "archive_ext": DEFAULT_EXTS,
         "keywords": "",
         "exclude_keywords": "",
         "senders": "",
@@ -271,6 +270,7 @@ class TgArchiveGrabber(_PluginBase):
         self._stop_event = threading.Event()
         self._trigger = threading.Event()
         self._scanning = False
+        self._skip_notified = False
         self._last_scan = ""
         self._last_result = ""
         self._pending_parts: Dict[str, Dict[str, Any]] = {}
@@ -343,10 +343,9 @@ class TgArchiveGrabber(_PluginBase):
         """返回 Vuetify 配置页：只保留机器人转发解压的必需项。"""
         cfgs = [
             _alert(
-                "把群里的压缩包转发给机器人即可：长轮询实时接收（无需公网地址）→ 自动下载 → "
-                "解压文件平铺到「下载目录/completed」（不保留包内文件夹）→ 按设置处理原包。"
-                "无需开发者账号，只需 @BotFather 给的 Bot Token。"
-                "官方 Bot API 单文件限 20MB，超限请用自建 Bot API Server 或拆分分卷。"
+                "把压缩包转发给机器人即可：实时接收 → 自动下载解压到「下载目录/completed」"
+                "（平铺、不保留包内文件夹）→ 按设置处理原包。只需 @BotFather 的 Bot Token。"
+                "单文件限 20MB，超限请拆分分卷或自建 Bot API Server。"
             ),
             _row(
                 _sw("enabled", "启用插件", md=12),
@@ -366,9 +365,6 @@ class TgArchiveGrabber(_PluginBase):
                 _tf("download_dir", "下载目录",
                     "容器内绝对路径；解压文件固定输出到该目录下的 completed 子目录",
                     "/downloads/tgarchives", md=12),
-            ),
-            _row(
-                _tf("archive_ext", "压缩包后缀", "逗号分隔", DEFAULT_EXTS, md=12),
             ),
             _row(
                 _sel("conflict", "同名文件", CONFLICT_ACTIONS, "", md=4),
@@ -581,11 +577,9 @@ class TgArchiveGrabber(_PluginBase):
         return bool(self._config.get(key, default))
 
     def _exts(self) -> Tuple[str, ...]:
-        """返回允许处理的压缩包后缀元组。"""
-        raw = self._cfg_str("archive_ext") or DEFAULT_EXTS
-        exts = tuple(x.lower() if x.startswith(".") else "." + x.lower()
-                     for x in _split_list(raw))
-        return exts or tuple(_split_list(DEFAULT_EXTS))
+        """返回允许处理的压缩包后缀元组（写死在代码中，配置页不再开放）。"""
+        return tuple(x.lower() if x.startswith(".") else "." + x.lower()
+                     for x in _split_list(DEFAULT_EXTS))
 
     def _download_dir(self) -> Path:
         """压缩包下载目录。"""
@@ -704,8 +698,11 @@ class TgArchiveGrabber(_PluginBase):
         fail_count = 0
         while not self._stop_event.is_set() and self._thread is current:
             try:
-                self._scan_once()
-                fail_count = 0
+                if self._scan_once():
+                    fail_count = 0
+                else:
+                    # 上一轮扫描尚未结束（锁被占用），短暂等待后再试，避免空转刷屏
+                    self._trigger.wait(timeout=1)
             except Exception as err:  # noqa: BLE001
                 fail_count += 1
                 # 连续失败只记第 1 次和之后每 10 次，避免网络抖动刷屏
@@ -741,11 +738,18 @@ class TgArchiveGrabber(_PluginBase):
                 except Exception:  # noqa: BLE001
                     pass
 
-    def _scan_once(self) -> None:
-        """执行一轮完整扫描：拉取新消息 → 下载 → 解压 → 保存游标。"""
+    def _scan_once(self) -> bool:
+        """执行一轮完整扫描：拉取新消息 → 下载 → 解压 → 保存游标。
+
+        返回 True 表示本轮真正执行了扫描；返回 False 表示上一轮扫描尚未结束而跳过。
+        跳过告警每个竞争周期只记录一次，避免后台线程空转刷屏。
+        """
         if not self._scan_lock.acquire(blocking=False):
-            self._log("上一轮扫描尚未结束，跳过本轮", "warning")
-            return
+            if not self._skip_notified:
+                self._skip_notified = True
+                self._log("上一轮扫描尚未结束，跳过本轮", "warning")
+            return False
+        self._skip_notified = False
         self._scanning = True
         cursors: Dict[str, int] = {}
         processed: set = set()
@@ -754,7 +758,7 @@ class TgArchiveGrabber(_PluginBase):
             problem = self._validate()
             if problem:
                 self._log(f"跳过扫描：{problem}", "warning")
-                return
+                return False
             self._download_dir().mkdir(parents=True, exist_ok=True)
             self._extract_dir().mkdir(parents=True, exist_ok=True)
             cursors = self._load_cursors()
@@ -783,6 +787,7 @@ class TgArchiveGrabber(_PluginBase):
                         f"成功 {stats['ok']} 个，失败 {stats['fail']} 个，"
                         f"输出目录：{self._extract_dir()}",
                     )
+            return True
         finally:
             self._scanning = False
             self._scan_lock.release()
