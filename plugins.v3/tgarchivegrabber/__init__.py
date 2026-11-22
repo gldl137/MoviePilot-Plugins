@@ -223,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.3"
+    plugin_version = "1.5.4"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -838,6 +838,16 @@ class TgArchiveGrabber(_PluginBase):
             raise RuntimeError(f"Bot API {method} 返回错误：{data.get('description') or data}")
         return data.get("result")
 
+    def _bot_reply(self, chat_id: Any, text: str) -> None:
+        """给转发者回复处理结果；发送失败只记日志，不影响主流程。"""
+        if not chat_id:
+            return
+        try:
+            # 不设置 parse_mode，纯文本发送，避免文件名里的 _ * [ 等字符导致解析失败
+            self._bot_api("sendMessage", {"chat_id": chat_id, "text": text}, timeout=15)
+        except Exception as err:  # noqa: BLE001
+            self._log(f"回复 Telegram 消息失败：{err}", "warning")
+
     def _bot_chat_matches(self, post: Dict[str, Any]) -> bool:
         """只处理指定 Chat ID 用户私聊转发的压缩包。"""
         chat = post.get("chat") or {}
@@ -863,6 +873,7 @@ class TgArchiveGrabber(_PluginBase):
             return None
         chat_info = post.get("chat") or {}
         chat = str(chat_info.get("username") or chat_info.get("id") or "bot")
+        reply_chat_id = chat_info.get("id")
         sender_tokens: set = set()
         for info in (post.get("from") or {}, post.get("sender_chat") or {}):
             if not isinstance(info, dict):
@@ -910,6 +921,7 @@ class TgArchiveGrabber(_PluginBase):
             "date": datetime.fromtimestamp(post.get("date") or time.time()).strftime(
                 "%Y-%m-%d %H:%M:%S"),
             "sender_tokens": sender_tokens,
+            "reply_chat_id": reply_chat_id,
             "download": download,
         }
 
@@ -1032,6 +1044,10 @@ class TgArchiveGrabber(_PluginBase):
                 if partial.exists():
                     partial.unlink()  # 清理上次崩溃残留，避免下载器自动改名
                 self._log(f"下载 {item.get('chat')}/{filename}（{_human_size(item.get('size'))}）")
+                self._bot_reply(
+                    item.get("reply_chat_id"),
+                    f"📥 已收到 {filename}（{_human_size(item.get('size'))}），开始处理…"
+                )
                 item["download"](partial)
                 if not partial.exists() or partial.stat().st_size == 0:
                     raise RuntimeError("下载完成但文件为空")
@@ -1049,6 +1065,11 @@ class TgArchiveGrabber(_PluginBase):
             count = int(failures.get(key, 0)) + 1
             failures[key] = count
             self._log(f"处理失败 {filename}（第 {count} 次）：{err}", "error")
+            self._bot_reply(
+                item.get("reply_chat_id"),
+                f"⚠️ {filename} 处理失败：{err}"
+                + (f"（第 {count}/{DEFAULT_RETRY} 次，将自动重试）" if count < DEFAULT_RETRY else "")
+            )
             try:
                 partial = target_dir / (filename + ".part")
                 if partial.exists():
@@ -1056,6 +1077,10 @@ class TgArchiveGrabber(_PluginBase):
             except Exception:  # noqa: BLE001
                 pass
             if count >= DEFAULT_RETRY:
+                self._bot_reply(
+                    item.get("reply_chat_id"),
+                    f"❌ {filename} 重试 {count} 次仍失败，已放弃：{err}"
+                )
                 self._append_history({
                     "key": key, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "chat": item.get("chat", ""), "filename": filename,
@@ -1096,9 +1121,12 @@ class TgArchiveGrabber(_PluginBase):
             "main": "",
             "ts": now,
             "chat": item.get("chat", ""),
+            "reply_chat_id": item.get("reply_chat_id"),
         }
         entry["dir"] = str(archive.parent)
         entry["chat"] = item.get("chat", entry.get("chat", ""))
+        if not entry.get("reply_chat_id"):
+            entry["reply_chat_id"] = item.get("reply_chat_id")
         entry["ts"] = float(entry.get("ts") or now)
         if is_main:
             entry["main"] = str(archive)
@@ -1117,6 +1145,11 @@ class TgArchiveGrabber(_PluginBase):
             f"分卷 {archive.name} 已就绪（主卷={'是' if is_main else '否'}，"
             f"当前同组 {len(parts)} 个文件），等待其余分卷…"
         )
+        self._bot_reply(
+            item.get("reply_chat_id"),
+            f"📥 已收到分卷 {archive.name}（同组共 {len(parts)} 个），"
+            f"等待其余分卷到齐后统一解压…"
+        )
 
     def _flush_pending_parts(self) -> None:
         """等待窗口结束后解压分卷包；失败记录后丢弃，避免无限重试。"""
@@ -1133,6 +1166,10 @@ class TgArchiveGrabber(_PluginBase):
             if not entry.get("main"):
                 if now - float(entry.get("ts") or now) > 3600:
                     self._log(f"分卷组 {stem} 始终未收到主卷，已丢弃待处理记录", "warning")
+                    self._bot_reply(
+                        entry.get("reply_chat_id"),
+                        f"⏰ 分卷包 {stem} 等待 1 小时仍未收到主卷，已取消"
+                    )
                     self._pending_parts.pop(stem, None)
                     changed = True
                 continue
@@ -1147,6 +1184,7 @@ class TgArchiveGrabber(_PluginBase):
             item = {
                 "key": f"parts:{stem}",
                 "chat": entry.get("chat", ""),
+                "reply_chat_id": entry.get("reply_chat_id"),
                 "filename": main.name,
                 "size": main.stat().st_size,
             }
@@ -1164,6 +1202,10 @@ class TgArchiveGrabber(_PluginBase):
                                 pass
             except Exception as err:  # noqa: BLE001
                 self._log(f"分卷组 {stem} 解压失败：{err}", "error")
+                self._bot_reply(
+                    item.get("reply_chat_id"),
+                    f"❌ 分卷包 {main.name} 解压失败：{err}"
+                )
                 self._append_history({
                     "key": item["key"], "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "chat": item["chat"], "filename": main.name,
@@ -1199,6 +1241,11 @@ class TgArchiveGrabber(_PluginBase):
             )
             self._record(item, "成功", f"平铺解压 {written} 个文件 → {final}"
                          + (f"，跳过同名 {skipped} 个" if skipped else ""))
+            self._bot_reply(
+                item.get("reply_chat_id"),
+                f"✅ {archive.name} 处理完成：解压 {written} 个文件 → {final}"
+                + (f"（跳过同名 {skipped} 个）" if skipped else "")
+            )
             if self._cfg_bool("delete_archive", True):
                 try:
                     archive.unlink()
