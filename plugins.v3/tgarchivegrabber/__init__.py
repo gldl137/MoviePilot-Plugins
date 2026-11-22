@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-TG 机器人压缩包抓取插件（MoviePilot V3）
+TG 机器人压缩包提取插件（MoviePilot V3）
 
 作者：gldl137
 仓库：MoviePilot-Plugins（https://github.com/gldl137/MoviePilot-Plugins）
@@ -217,13 +217,13 @@ def _environment() -> Tuple[List[str], str]:
 
 
 class TgArchiveGrabber(_PluginBase):
-    """监控 Telegram 群组 / 频道压缩包并自动下载解压。"""
+    """通过 Telegram 机器人接收转发的压缩包并自动下载解压。"""
 
     # ---- 插件元信息（必须写成字面量：宿主会静态解析类属性做加载校验） ----
-    plugin_name = "TG群组压缩包抓取"
+    plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.2"
+    plugin_version = "1.5.3"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
