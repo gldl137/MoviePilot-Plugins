@@ -223,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG群组压缩包抓取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -353,8 +353,9 @@ class TgArchiveGrabber(_PluginBase):
             ),
             _row(
                 _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "password", md=6),
-                _tf("chat_id", "Chat ID（可选）",
-                    "只处理指定用户转发的压缩包；留空则处理所有私聊转发", "", "text", md=6),
+                _tf("chat_id", "Chat ID（必填）",
+                    "只处理这个用户转发的压缩包；给机器人发条消息后点「测试连接」可自动获取",
+                    "", "text", md=6),
             ),
             _row(
                 _tf("proxy", "代理地址",
@@ -600,6 +601,8 @@ class TgArchiveGrabber(_PluginBase):
         """校验运行必需的凭据与目录，返回错误说明或 None。"""
         if not self._cfg_str("bot_token"):
             return "需要填写 Bot Token（从 @BotFather 获取）"
+        if not self._cfg_str("chat_id"):
+            return "需要填写 Chat ID（只处理该用户转发的压缩包）"
         if not self._cfg_str("download_dir"):
             return "需要填写压缩包保存目录"
         return None
@@ -833,17 +836,14 @@ class TgArchiveGrabber(_PluginBase):
         return data.get("result")
 
     def _bot_chat_matches(self, post: Dict[str, Any]) -> bool:
-        """只处理机器人私聊消息；配置 Chat ID 时只处理该用户的转发。"""
+        """只处理指定 Chat ID 用户私聊转发的压缩包。"""
         chat = post.get("chat") or {}
         if str(chat.get("type") or "").lower() != "private":
             return False
-        allowed = self._cfg_str("chat_id").strip()
-        if not allowed:
-            return True
-        wanted = allowed.lstrip("@").lower()
+        allowed = self._cfg_str("chat_id").strip().lstrip("@").lower()
         identifiers = {str(chat.get("id") or ""),
                        str(chat.get("username") or "").lower().lstrip("@")}
-        return wanted in identifiers
+        return allowed in identifiers
 
     def _build_bot_item(self, update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """把 Bot API update 转换成统一的待处理项。"""
@@ -978,8 +978,8 @@ class TgArchiveGrabber(_PluginBase):
                     chat = post.get("chat") or {}
                     if str(chat.get("type") or "").lower() == "private":
                         details.append(
-                            f"最近私聊 Chat ID：{chat.get('id')} "
-                            f"(@{chat.get('username') or '无用户名'}) —— 需要限定时填入配置"
+                            f"你的 Chat ID：{chat.get('id')} "
+                            f"(@{chat.get('username') or '无用户名'}) —— 复制这个数字填入配置"
                         )
                         break
             except Exception:  # noqa: BLE001 - 拉取失败不影响连接测试
