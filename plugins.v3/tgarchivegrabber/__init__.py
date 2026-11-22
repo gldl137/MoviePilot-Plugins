@@ -74,7 +74,7 @@ LONG_POLL_TIMEOUT = 30
 
 DEFAULT_EXTS = (
     ".zip,.rar,.7z,.tar,.gz,.tgz,.tar.gz,.bz2,.tbz2,.xz,.txz,"
-    ".001,.part1.rar,.z01,.r00"
+    ".001,.part1.rar,.z01,.r00,.cas"
 )
 
 CONFLICT_ACTIONS = {
@@ -223,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.5"
+    plugin_version = "1.5.6"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -1061,7 +1061,10 @@ class TgArchiveGrabber(_PluginBase):
                 partial.replace(target)
             else:
                 self._log(f"复用已下载文件 {target.name}")
-            self._handle_archive(target, stem, is_part, is_main, item)
+            if filename.lower().endswith(".cas"):
+                self._move_cas(target, item)
+            else:
+                self._handle_archive(target, stem, is_part, is_main, item)
             processed.add(key)
             failures.pop(key, None)
             stats["ok"] += 1
@@ -1222,6 +1225,39 @@ class TgArchiveGrabber(_PluginBase):
                 changed = True
         if changed:
             self.save_data("pending_parts", self._pending_parts)
+
+    def _move_cas(self, archive: Path, item: Dict[str, Any]) -> None:
+        """.cas 秒传文件不解压，直接移动到「下载目录/completed」。"""
+        final = self._extract_dir()
+        final.mkdir(parents=True, exist_ok=True)
+        target = final / archive.name
+        conflict = self._cfg_str("conflict", "skip") or "skip"
+        if target.exists() and conflict != "overwrite":
+            self._log(f"completed 已存在 {target.name}，跳过移动")
+            self._record(item, "成功", f"completed 已存在同名文件，跳过 → {final}")
+            self._bot_reply(
+                item.get("reply_chat_id"),
+                f"⏭️ {archive.name} completed 已存在同名文件，已跳过"
+            )
+            if self._cfg_bool("delete_archive", True):
+                try:
+                    archive.unlink()
+                    self._log(f"已删除源文件 {archive.name}")
+                except OSError as err:
+                    self._log(f"删除源文件失败：{err}", "warning")
+            return
+        if target.exists():
+            try:
+                target.unlink()
+            except OSError as err:
+                raise RuntimeError(f"覆盖同名文件失败 {target.name}：{err}") from err
+        shutil.move(str(archive), str(target))
+        self._log(f"已移动 {archive.name} → {final}")
+        self._record(item, "成功", f"已移动到 completed → {final}")
+        self._bot_reply(
+            item.get("reply_chat_id"),
+            f"✅ {archive.name} 已移动到 {final}"
+        )
 
     def _extract_one(self, archive: Path, stem: str, item: Dict[str, Any]) -> None:
         """解压到「下载目录/completed」：所有文件平铺、不建子目录；成功后删除压缩包。"""
