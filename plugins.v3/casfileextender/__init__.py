@@ -159,7 +159,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.28"
+    plugin_version = "1.29"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -184,9 +184,9 @@ class CasFileExtender(_PluginBase):
 
     # ---------------- 宿主基类要求 ----------------
 
-    def get_state(self) -> Any:
-        """返回插件状态（宿主基类抽象方法）。"""
-        return {"enabled": self._enabled, "keep_inner_ext": self._keep_inner_ext}
+    def get_state(self) -> bool:
+        """卡片绿点状态：只有插件启用时才亮。"""
+        return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """仅保留启用开关与「保留视频扩展名」开关。"""

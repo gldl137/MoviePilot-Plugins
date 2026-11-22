@@ -113,7 +113,7 @@ class embysyncdeletioncloud(_PluginBase):
     # 插件图标
     plugin_icon = "mediasyncdel.png"
     # 插件版本
-    plugin_version = "1.0.2"
+    plugin_version = "1.0.3"
     # 插件作者
     plugin_author = "gldl137"
     # 作者主页
@@ -4247,10 +4247,9 @@ class embysyncdeletioncloud(_PluginBase):
             return None
 
     # ==================== 不能删除 无法进入设置界面 ====================
-    def get_state(self):
-        return {
-            "enabled": bool(self._enabled),
-        }
+    def get_state(self) -> bool:
+        """卡片绿点状态：只有插件启用时才亮。"""
+        return bool(self._enabled)
 
     # ==================== 设置界面 ====================
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:

@@ -61,7 +61,7 @@ class casassistant(_PluginBase):
     plugin_name = "CAS助手"
     plugin_desc = "集中管理 CAS 服务的连接配置（地址、API Key），供其它插件统一读取，避免各插件重复填写 CAS 服务地址；启动时探测并在日志中显示连接状态。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casassistant_"
@@ -126,8 +126,9 @@ class casassistant(_PluginBase):
 
     # ---------------- 宿主基类要求 ----------------
 
-    def get_state(self) -> Any:
-        return {"enabled": self._cas_enabled, "connected": self._cas_connected}
+    def get_state(self) -> bool:
+        """卡片绿点状态：只有插件启用时才亮。"""
+        return self._cas_enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
