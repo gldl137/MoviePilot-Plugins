@@ -71,7 +71,7 @@ class ArchiveUnpacker(_PluginBase):
                    "默认扁平化（只提取文件、不保留压缩包内文件夹），也可选保留目录结构。"
                    "zip/tar 标准库开箱即用，rar/7z 需系统装 unrar/7z。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "archiveunpacker_"
@@ -96,6 +96,9 @@ class ArchiveUnpacker(_PluginBase):
 
     # ---------------- 生命周期 ----------------
     def init_plugin(self, config: dict = None):
+        # 先停掉旧线程：旧监控线程持有旧 _stop_event 引用，必须先 set 旧事件再重建，
+        # 否则关闭插件 / 重新保存配置后旧线程收不到停止信号，会一直在后台运行
+        self.stop_service()
         cfg = config or {}
         self._enabled = bool(cfg.get("enabled", False))
         self._scan_existing = bool(cfg.get("scan_existing", False))
@@ -136,16 +139,9 @@ class ArchiveUnpacker(_PluginBase):
             self._stop_event.set()
 
     # ---------------- 宿主要求 ----------------
-    def get_state(self) -> Any:
-        return {
-            "enabled": self._enabled,
-            "monitor_dirs": "\n".join(self._monitor_dirs),
-            "archive_exts": ",".join(sorted(e.lstrip('.') for e in self._exts)),
-            "conflict": self._conflict,
-            "keep_archive": self._keep_archive,
-            "flatten": "flat" if self._flatten else "keepdir",
-            "scan_existing": self._scan_existing,
-        }
+    def get_state(self) -> bool:
+        """卡片绿点状态：只有插件启用时才亮。"""
+        return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         return [
