@@ -219,9 +219,9 @@ class TgArchiveGrabber(_PluginBase):
 
     # ---- 插件元信息（必须写成字面量：宿主会静态解析类属性做加载校验） ----
     plugin_name = "TG群组压缩包抓取"
-    plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包。"
+    plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.0"
+    plugin_version = "1.4.0"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -230,11 +230,9 @@ class TgArchiveGrabber(_PluginBase):
 
     _default_config: Dict[str, Any] = {
         "enabled": False,
-        "channels": "",
         "proxy": "",
         "bot_token": "",
         "bot_api_base": "https://api.telegram.org",
-        "bot_private": False,
         "download_dir": "/downloads/tgarchives",
         "archive_ext": DEFAULT_EXTS,
         "keywords": "",
@@ -287,9 +285,8 @@ class TgArchiveGrabber(_PluginBase):
         if not isinstance(self._pending_parts, dict):
             self._pending_parts = {}
         self._log(
-            f"初始化完成：启用={self._enabled}，Bot 私聊转发="
-            f"{'开' if self._cfg_bool('bot_private') else '关'}，"
-            f"监控会话数={len(self._channels())}，间隔={self._cfg_int('interval', 60, MIN_INTERVAL)}秒"
+            f"初始化完成：启用={self._enabled}，机器人私聊转发固定开启，"
+            f"间隔={self._cfg_int('interval', 60, MIN_INTERVAL)}秒"
         )
         if self._enabled:
             problem = self._validate()
@@ -340,76 +337,33 @@ class TgArchiveGrabber(_PluginBase):
     # 配置页
     # ------------------------------------------------------------------
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """返回 Vuetify 配置页与默认配置模型。"""
+        """返回 Vuetify 配置页：只保留机器人转发解压的必需项。"""
         cfgs = [
             _alert(
-                f"{self.plugin_name}：{self.plugin_desc} "
-                "基于 Telegram Bot API，只需 @BotFather 给的 Token，无需开发者账号。"
-                "把群里的压缩包转发给机器人，机器人下载后立刻解压：文件平铺到「下载目录/completed」，"
-                "不保留包内文件夹；同名文件可跳过/覆盖，解压成功后可删除原包（开关），"
-                "分卷包待全部分卷到齐后统一处理。"
-                "官方 Bot API 单文件限 20MB，超限请自建 Bot API Server 或把压缩包拆成小于 20MB 的分卷转发。"
+                "把群里的压缩包转发给机器人即可：自动下载 → 解压文件平铺到「下载目录/completed」"
+                "（不保留包内文件夹）→ 按设置处理原包。无需开发者账号，只需 @BotFather 给的 Bot Token。"
+                "官方 Bot API 单文件限 20MB，超限请用自建 Bot API Server 或拆分分卷。"
             ),
             _row(
-                _sw("enabled", "启用插件"),
-                _sw("notify", "发送通知", "下载解压成功后发送 MoviePilot 消息"),
-                _sw("onlyonce", "立即运行一次", "保存配置后立即扫描一轮", md=3),
-                _sw("clear_records", "清空记录", "清空去重/游标/历史，文件将可重新处理", md=3),
+                _sw("enabled", "启用插件", md=4),
+                _tf("interval", "轮询间隔（秒）", "最小 15 秒，转发后约一个间隔内处理", "60", md=4),
             ),
             _row(
-                _tf("channels", "监控群组 / 频道",
-                    "一行或逗号分隔，如 @xxx、-1001234567890（超级群/频道）、-123456789（普通群）；"
-                    "开启「处理机器人私聊转发」后可留空",
-                    "@groupname", md=8),
-            ),
-            _row(
-                _tf("bot_token", "Bot Token",
-                    "从 @BotFather 获取；群组需 /setprivacy 关闭隐私模式", "", "password", md=6),
-                _tf("bot_api_base", "Bot API 地址", "自建 Bot API Server 可解除 20MB 限制",
+                _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "password", md=6),
+                _tf("bot_api_base", "Bot API 地址", "自建服务器可解除 20MB 限制",
                     "https://api.telegram.org", md=6),
             ),
             _row(
-                _sw("bot_private", "处理机器人私聊转发",
-                    "开启后把压缩包私聊转发给机器人即可下载解压，此时「监控群组 / 频道」可留空", md=4),
-            ),
-            _row(
-                _tf("proxy", "代理地址", "留空则尝试读取 MoviePilot 系统代理；支持 http/socks5",
-                    "socks5://127.0.0.1:7890", md=6),
-                _tf("interval", "轮询间隔（秒）", "每轮扫描的最小间隔，最小 15 秒", "60", md=3),
-            ),
-            _row(
-                _tf("download_dir", "压缩包保存目录",
-                    "容器内的绝对路径；解压文件固定输出到该目录下的 completed 子目录",
+                _tf("download_dir", "下载目录",
+                    "容器内绝对路径；解压文件固定输出到该目录下的 completed 子目录",
                     "/downloads/tgarchives", md=12),
             ),
             _row(
-                _tf("archive_ext", "压缩包后缀", "逗号分隔，留空使用默认值", DEFAULT_EXTS, md=12),
+                _tf("archive_ext", "压缩包后缀", "逗号分隔", DEFAULT_EXTS, md=12),
             ),
             _row(
-                _tf("keywords", "包含关键词", "文件名或消息文本命中任一关键词才处理，留空不过滤", md=4),
-                _tf("exclude_keywords", "排除关键词", "命中任一关键词则跳过", md=4),
-                _tf("senders", "仅处理指定发送者",
-                    "群组消息较多时可填用户 ID 或 @用户名（逗号分隔），留空处理全部",
-                    "@someone", md=4),
-            ),
-            _row(
-                _tf("min_size_mb", "最小文件（MB）", "0 表示不限", "0", md=4),
-                _tf("max_size_mb", "最大文件（MB）", "0 表示不限", "0", md=4),
-                _tf("max_files_per_round", "单轮最多处理压缩包", "避免一次轮询耗时过长", "20", md=4),
-            ),
-            _row(
-                _tf("extract_password", "解压密码", "留空表示无密码，支持 7z/RAR/ZIP", "", "password", md=4),
-                _sel("conflict", "同名文件", CONFLICT_ACTIONS, "目标文件已存在时的处理方式", md=4),
-                _sw("delete_archive", "解压后删除压缩包", "解压成功后删除原压缩包（分卷包待全部解压成功后统一删除）", md=4),
-            ),
-            _row(
-                _tf("inner_ext", "仅保留的文件后缀", "解压后仅保留指定后缀，留空保留全部", ".mp4,.mkv,.srt", md=4),
-                _sw("backfill", "首次回溯历史消息", "启用后首轮处理最近 N 条消息", md=4),
-            ),
-            _row(
-                _tf("backfill_count", "回溯条数", "首次启动只回溯最近 N 条消息", "20", md=4),
-                _tf("parts_wait_seconds", "分卷等待（秒）", "收到主卷后等待其余分卷到齐再解压", "120", md=4),
-                _tf("max_extract_mb", "单包解压上限（MB）", "防御解压炸弹，超限则丢弃本次解压结果", "4096", md=4),
+                _sel("conflict", "同名文件", CONFLICT_ACTIONS, "", md=4),
+                _sw("delete_archive", "解压后删除压缩包", "解压成功后删除原包（分卷包待全部到齐解压后统一删除）", md=4),
             ),
         ]
         return [{"component": "VForm", "content": cfgs}], {**self._default_config, **self._config}
@@ -418,15 +372,7 @@ class TgArchiveGrabber(_PluginBase):
     # 详情页
     # ------------------------------------------------------------------
     def get_page(self) -> List[dict]:
-        """状态、操作按钮、日志与最近记录。"""
-        prefix = self.__class__.__name__
-        missing, tips = _environment()
-        with self._log_lock:
-            lines = list(self._logs)
-        log_content = ([{"component": "div", "text": line} for line in lines]
-                       or [{"component": "div",
-                            "props": {"class": "text-medium-emphasis"},
-                            "text": "暂无日志，点击「立即扫描」或「测试连接」后显示。"}])
+        """只展示处理记录列表。"""
         history_rows: List[Dict[str, Any]] = []
         for it in self._load_history():
             status = str(it.get("status", ""))
@@ -453,63 +399,9 @@ class TgArchiveGrabber(_PluginBase):
                 "content": [{"component": "td", "props": {"colspan": 6, "class": "text-center"},
                              "text": "暂无处理记录（转发压缩包并解压成功后会记录在此）"}],
             }]
-        worker_alive = bool(self._thread and self._thread.is_alive())
-        state_text = (
-            f"插件状态：{'已启用' if self._enabled else '未启用'}；"
-            f"守护线程：{'运行中' if worker_alive else '未运行'}；"
-            f"当前任务：{'扫描中' if self._scanning else '空闲'}；"
-            f"上次扫描：{self._last_scan or '尚未扫描'}"
-        )
-        dep_text = (f"依赖检查：缺失 {'、'.join(missing)}。{tips}" if missing
-                    else "依赖检查：基础依赖已就绪。" + (f" {tips}" if tips else ""))
-
-        def button(text: str, path: str, icon: str, color: str = "primary") -> Dict[str, Any]:
-            return {
-                "component": "VCol",
-                "props": {"cols": 12, "md": 3},
-                "content": [{
-                    "component": "VBtn",
-                    "props": {"color": color, "variant": "elevated", "block": True,
-                              "prepend-icon": icon},
-                    "text": text,
-                    "events": {"click": {
-                        "type": "request",
-                        "api": f"plugin/{prefix}{path}",
-                        "method": "POST",
-                        "success": "已执行，详见下方日志",
-                        "fail": "请求失败，请查看插件日志",
-                    }},
-                }],
-            }
 
         return [
-            {"component": "VCard", "props": {"variant": "flat"}, "content": [
-                {"component": "VCardTitle", "props": {"class": "text-h6"}, "text": self.plugin_name},
-                {"component": "VCardSubtitle", "props": {"class": "text-caption text-medium-emphasis"},
-                 "text": f"v{self.plugin_version}　作者：{self.plugin_author}　仓库：MoviePilot-Plugins　{self.plugin_desc}"},
-                {"component": "div", "props": {"class": "text-caption text-medium-emphasis px-4"},
-                 "text": str(self.author_url)},
-                {"component": "VCardText", "content": [
-                    _alert(state_text, "success" if self._enabled and worker_alive else "warning", "mb-3"),
-                    _alert(dep_text, "error" if missing else "info", "mb-3"),
-                    _alert(f"群组/频道：{'、'.join(self._channels()) or '未配置'}；"
-                           f"下载目录：{self._cfg_str('download_dir')}；"
-                           f"解压目录：{self._extract_dir()}（仅文件，解压后删除压缩包）；"
-                           f"最近结果：{self._last_result or '无'}", "info", "mb-3"),
-                    _row(
-                        button("立即扫描", "/scan", "mdi-play"),
-                        button("测试连接", "/test", "mdi-connection"),
-                        button("环境自检", "/diagnose", "mdi-stethoscope"),
-                        button("清空日志", "/clear_logs", "mdi-delete", "error"),
-                    ),
-                ]},
-            ]},
-            {"component": "VCard", "props": {"variant": "flat", "class": "mt-4"}, "content": [
-                {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "运行日志（最近 300 行）"},
-                {"component": "VCardText", "props": {"style": "max-height:320px;overflow:auto"},
-                 "content": log_content},
-            ]},
-            {"component": "VCard", "props": {"variant": "outlined", "class": "mt-4"}, "content": [
+            {"component": "VCard", "props": {"variant": "outlined"}, "content": [
                 {"component": "VCardTitle", "props": {"class": "text-subtitle-1"}, "text": "处理记录"},
                 {"component": "VCardText",
                  "text": f"共 {len(history_rows)} 条（最多保留 {MAX_HISTORY} 条，最新在上）。"},
@@ -525,7 +417,7 @@ class TgArchiveGrabber(_PluginBase):
                             {"component": "tr", "content": [
                                 {"component": "th", "props": {"width": "190px", "class": "text-no-wrap"},
                                  "text": "时间"},
-                                {"component": "th", "text": "群组/频道"},
+                                {"component": "th", "text": "来源"},
                                 {"component": "th", "text": "压缩包"},
                                 {"component": "th", "props": {"width": "90px"}, "text": "状态"},
                                 {"component": "th", "props": {"width": "80px"}, "text": "大小"},
@@ -549,7 +441,7 @@ class TgArchiveGrabber(_PluginBase):
             {"path": "/scan", "endpoint": self.api_scan, "methods": ["POST"],
              "auth": "bear", "summary": "立即扫描一轮"},
             {"path": "/test", "endpoint": self.api_test, "methods": ["POST"],
-             "auth": "bear", "summary": "测试 Telegram 连接与群组/频道可访问性"},
+             "auth": "bear", "summary": "测试 Bot Token 连接"},
             {"path": "/diagnose", "endpoint": self.api_diagnose, "methods": ["POST"],
              "auth": "bear", "summary": "环境自检"},
             {"path": "/history", "endpoint": self.api_history, "methods": ["GET"],
@@ -627,9 +519,7 @@ class TgArchiveGrabber(_PluginBase):
         tools = {name: shutil.which(name) for name in ("unar", "unrar", "7z", "bsdtar")}
         lines = [
             f"Python：{sys.version.split()[0]}，解释器：{sys.executable}",
-            f"Bot 私聊转发：{'开启' if self._cfg_bool('bot_private') else '关闭'}；"
-            f"群组/频道：{self._channels() or '未配置'}",
-            f"发送者白名单：{_split_list(self._config.get('senders')) or '全部'}",
+            f"机器人私聊转发：固定开启（转发给机器人的压缩包全部处理）",
             f"代理：{self._proxy_url() or '未设置'}",
             f"系统解压工具：{tools}",
             f"缺失依赖：{missing or '无'}",
@@ -681,21 +571,6 @@ class TgArchiveGrabber(_PluginBase):
         """读取布尔配置。"""
         return bool(self._config.get(key, default))
 
-    def _channels(self) -> List[str]:
-        """返回配置的频道列表（规范化 @ 前缀）。"""
-        chats: List[str] = []
-        for raw in _split_list(self._config.get("channels")):
-            chat = raw.strip().rstrip("/")
-            if chat.startswith(("https://t.me/+", "t.me/+")):
-                pass  # Bot API 不支持邀请链接，需填 @用户名或数字 ID
-            elif chat.startswith("https://t.me/"):
-                chat = "@" + chat.split("https://t.me/", 1)[1]
-            elif chat.startswith("t.me/"):
-                chat = "@" + chat[5:]
-            if chat and chat not in chats:
-                chats.append(chat)
-        return chats
-
     def _exts(self) -> Tuple[str, ...]:
         """返回允许处理的压缩包后缀元组。"""
         raw = self._cfg_str("archive_ext") or DEFAULT_EXTS
@@ -715,8 +590,6 @@ class TgArchiveGrabber(_PluginBase):
         """校验运行必需的凭据与目录，返回错误说明或 None。"""
         if not self._cfg_str("bot_token"):
             return "需要填写 Bot Token（从 @BotFather 获取）"
-        if not self._channels() and not self._cfg_bool("bot_private"):
-            return "需配置监控群组/频道，或开启「处理机器人私聊转发」"
         if not self._cfg_str("download_dir"):
             return "需要填写压缩包保存目录"
         return None
@@ -940,32 +813,11 @@ class TgArchiveGrabber(_PluginBase):
             raise RuntimeError(f"Bot API {method} 返回错误：{data.get('description') or data}")
         return data.get("result")
 
-    def _bot_chat_matches(self, post: Dict[str, Any]) -> bool:
-        """Bot 模式下按群组/频道过滤；开启私聊转发时放行机器人收到的私聊消息。"""
+    @staticmethod
+    def _bot_chat_matches(post: Dict[str, Any]) -> bool:
+        """只处理机器人私聊消息（用户把群里的压缩包转发给机器人）。"""
         chat = post.get("chat") or {}
-        if (self._cfg_bool("bot_private")
-                and str(chat.get("type") or "").lower() == "private"):
-            return True
-        allowed = self._channels()
-        if not allowed:
-            return False
-        identifiers = {
-            str(chat.get("id") or ""),
-            str(chat.get("username") or "").lower(),
-            str(chat.get("title") or "").lower(),
-        }
-        if chat.get("username"):
-            identifiers.add("@" + str(chat["username"]).lower())
-        for raw in allowed:
-            value = raw.lower()
-            if value in identifiers or value.lstrip("@") in identifiers:
-                return True
-            if re.fullmatch(r"-?\d+", value):
-                chat_id = str(chat.get("id") or "")
-                # 普通群 ID 常被写成 -123456 或 123456，忽略负号再比一次
-                if value == chat_id or value.lstrip("-") == chat_id.lstrip("-"):
-                    return True
-        return False
+        return str(chat.get("type") or "").lower() == "private"
 
     def _build_bot_item(self, update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """把 Bot API update 转换成统一的待处理项。"""
@@ -1086,74 +938,23 @@ class TgArchiveGrabber(_PluginBase):
         return cursors
 
     def _test_connection(self) -> Dict[str, Any]:
-        """测试凭据是否有效、群组/频道是否可访问，结果写入详情页日志。"""
+        """测试 Bot Token 是否有效，结果写入详情页日志。"""
         details: List[str] = []
-        failed = False
         try:
             me = self._bot_api("getMe", {}) or {}
             details.append(f"Bot：@{me.get('username', '未知')} ({me.get('first_name', '')})")
-            for chat in self._channels():
-                try:
-                    try:
-                        info = self._bot_api("getChat", {"chat_id": chat}) or {}
-                    except Exception:  # noqa: BLE001 - 普通群填写正数 ID 时补负号重试
-                        if re.fullmatch(r"\d+", chat):
-                            info = self._bot_api("getChat", {"chat_id": f"-{chat}"}) or {}
-                        else:
-                            raise
-                    details.append(f"群组/频道 {chat} → {info.get('title') or info.get('username') or '可访问'}")
-                except Exception as err:  # noqa: BLE001
-                    failed = True
-                    details.append(f"群组/频道 {chat} 访问失败：{err}")
-            if self._cfg_bool("bot_private"):
-                details.append("私聊转发已开启：把压缩包直接私聊发给机器人即可，无需配置群组/频道。")
-            details.append(
-                "提示：群组中 Bot 需在 @BotFather 用 /setprivacy 关闭隐私模式才能收到普通消息；"
-                "频道需设为管理员才能收到 channel_post；官方 API 限制 20MB。"
-            )
-            details.append("注意：getChat 可访问不代表能收到消息，请确认 Bot 已入群且隐私模式已关闭。")
-            return self._result(not failed, "Bot 连接测试完成", details=details)
+            details.append("连接正常。把群里的压缩包转发给这个机器人即可自动下载解压。")
+            return self._result(True, "Bot 连接测试完成", details=details)
         except Exception as err:  # noqa: BLE001
             return self._result(False, f"Bot 连接失败：{err}", details=details)
 
     # ------------------------------------------------------------------
     # 消息过滤与处理
     # ------------------------------------------------------------------
-    def _sender_allowed(self, item: Dict[str, Any]) -> bool:
-        """按发送者白名单过滤群组消息；消息缺少发送者信息时放行，避免误杀。"""
-        allowed = [x.lower().lstrip("@")
-                   for x in _split_list(self._config.get("senders"))]
-        if not allowed:
-            return True
-        tokens = {str(token).lower().lstrip("@")
-                  for token in (item.get("sender_tokens") or set()) if token}
-        if not tokens:
-            return True
-        return any(value in tokens for value in allowed)
-
     def _match_archive(self, item: Dict[str, Any]) -> bool:
-        """判断消息附件是否为需要处理的压缩包。"""
-        if not self._sender_allowed(item):
-            return False
+        """转发的附件只要是配置的压缩包后缀就处理，不做其它过滤。"""
         filename = str(item.get("filename") or "")
-        lower = filename.lower()
-        if not lower.endswith(self._exts()):
-            return False
-        size = int(item.get("size") or 0)
-        min_size = self._cfg_int("min_size_mb", 0) * 1024 * 1024
-        max_size = self._cfg_int("max_size_mb", 0) * 1024 * 1024
-        if min_size and size and size < min_size:
-            return False
-        if max_size and size and size > max_size:
-            return False
-        text = f"{filename} {item.get('caption') or ''}".lower()
-        keywords = [x.lower() for x in _split_list(self._config.get("keywords"))]
-        if keywords and not any(x in text for x in keywords):
-            return False
-        excluded = [x.lower() for x in _split_list(self._config.get("exclude_keywords"))]
-        if excluded and any(x in text for x in excluded):
-            return False
-        return True
+        return filename.lower().endswith(self._exts())
 
     def _process_item(self, item: Dict[str, Any], processed: set,
                       failures: Dict[str, int], stats: Dict[str, int]) -> bool:
