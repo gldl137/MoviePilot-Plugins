@@ -6,12 +6,14 @@ authors = [
     { name = "gldl137" },
 ]
 # 只声明宿主未提供、且插件真正需要的依赖：
-# pyzipper - 解压 AES 加密 ZIP（Bot API 用 requests 由宿主自带）
+# pyzipper          - 解压 AES 加密 ZIP
+# requests[socks]   - socks5 代理支持（Telegram 访问走代理时必须）
 # 注意：不声明 py7zr！它依赖 pyppmd，而 pyppmd 在 Python 3.14 上无预编译 wheel，
 #       无 gcc 的宿主环境会编译失败导致整包安装中断；.7z 改走系统 7z 命令（与 RAR 同策略）。
 # RAR / 7z / 分卷包使用系统 unar、unrar、7z 或 bsdtar（官方 Docker 镜像内置 unar）
 dependencies = [
     "pyzipper>=0.3,<1",
+    "requests[socks]>=2.31,<3",
 ]
 
 [project.urls]

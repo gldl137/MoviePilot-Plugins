@@ -15,8 +15,9 @@ TG 机器人压缩包抓取插件（MoviePilot V3）
 
 实现约定：
     - 只使用 V3 稳定入口（app.sdk.*），基类入口保留 app.plugins 兼容回退。
-    - 采用插件内守护线程轮询（不依赖宿主 cron 服务，避免 register_plugin_service 的
-      cron= 关键字兼容问题），线程可重复启停，stop_service 会释放后台资源。
+    - 采用 Telegram Bot API 长轮询（getUpdates timeout=30）：机器人挂在 Telegram 门口等，
+      有转发消息立即返回并处理，无消息时连接挂起，不需要公网 HTTPS 地址。
+    - 支持 http / socks5 代理（可手填或用 MoviePilot 系统代理），代理同时用于 API 与下载。
     - 运行数据（去重集合、游标、历史、分卷待处理）一律写入插件数据目录，不写源码目录。
 """
 
@@ -68,7 +69,8 @@ MAX_HISTORY = 200
 MAX_PROCESSED = 5000
 MAX_FAILURES = 500
 DEFAULT_RETRY = 3
-MIN_INTERVAL = 15
+MIN_INTERVAL = 1
+LONG_POLL_TIMEOUT = 30
 
 DEFAULT_EXTS = (
     ".zip,.rar,.7z,.tar,.gz,.tgz,.tar.gz,.bz2,.tbz2,.xz,.txz,"
@@ -221,7 +223,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG群组压缩包抓取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.4.1"
+    plugin_version = "1.5.0"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -242,7 +244,7 @@ class TgArchiveGrabber(_PluginBase):
         "min_size_mb": 0,
         "max_size_mb": 0,
         "max_files_per_round": 20,
-        "interval": 60,
+        "interval": 1,
         "backfill": False,
         "backfill_count": 20,
         "extract_password": "",
@@ -286,8 +288,8 @@ class TgArchiveGrabber(_PluginBase):
         if not isinstance(self._pending_parts, dict):
             self._pending_parts = {}
         self._log(
-            f"初始化完成：启用={self._enabled}，机器人私聊转发固定开启，"
-            f"间隔={self._cfg_int('interval', 60, MIN_INTERVAL)}秒"
+            f"初始化完成：启用={self._enabled}，长轮询模式（转发即时处理），"
+            f"代理={self._proxy_url() or '未设置'}"
         )
         if self._enabled:
             problem = self._validate()
@@ -341,13 +343,13 @@ class TgArchiveGrabber(_PluginBase):
         """返回 Vuetify 配置页：只保留机器人转发解压的必需项。"""
         cfgs = [
             _alert(
-                "把群里的压缩包转发给机器人即可：自动下载 → 解压文件平铺到「下载目录/completed」"
-                "（不保留包内文件夹）→ 按设置处理原包。无需开发者账号，只需 @BotFather 给的 Bot Token。"
+                "把群里的压缩包转发给机器人即可：长轮询实时接收（无需公网地址）→ 自动下载 → "
+                "解压文件平铺到「下载目录/completed」（不保留包内文件夹）→ 按设置处理原包。"
+                "无需开发者账号，只需 @BotFather 给的 Bot Token。"
                 "官方 Bot API 单文件限 20MB，超限请用自建 Bot API Server 或拆分分卷。"
             ),
             _row(
-                _sw("enabled", "启用插件", md=4),
-                _tf("interval", "轮询间隔（秒）", "最小 15 秒，转发后约一个间隔内处理", "60", md=4),
+                _sw("enabled", "启用插件", md=12),
             ),
             _row(
                 _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "password", md=6),
@@ -355,8 +357,11 @@ class TgArchiveGrabber(_PluginBase):
                     "只处理指定用户转发的压缩包；留空则处理所有私聊转发", "", "text", md=6),
             ),
             _row(
+                _tf("proxy", "代理地址",
+                    "访问 Telegram 用；留空则用 MoviePilot 系统代理。支持 http / socks5",
+                    "socks5://127.0.0.1:7890", md=8),
                 _tf("bot_api_base", "Bot API 地址", "自建服务器可解除 20MB 限制",
-                    "https://api.telegram.org", md=12),
+                    "https://api.telegram.org", md=4),
             ),
             _row(
                 _tf("download_dir", "下载目录",
@@ -693,15 +698,14 @@ class TgArchiveGrabber(_PluginBase):
             self._log("守护线程已启动")
 
     def _worker_loop(self) -> None:
-        """按配置间隔轮询；异常只记日志，不让线程退出。"""
+        """长轮询循环：getUpdates 挂起等待新消息，收到立即处理；异常退避后重试。"""
         current = threading.current_thread()
         while not self._stop_event.is_set() and self._thread is current:
             try:
                 self._scan_once()
             except Exception as err:  # noqa: BLE001
-                self._log(f"扫描出现异常：{err}", "error")
-            interval = self._cfg_int("interval", 60, MIN_INTERVAL)
-            self._trigger.wait(timeout=interval)
+                self._log(f"扫描出现异常：{err}，3 秒后重试", "error")
+                self._trigger.wait(timeout=3)
             self._trigger.clear()
         self._log("守护线程已退出")
 
@@ -794,9 +798,19 @@ class TgArchiveGrabber(_PluginBase):
         return str(system_proxy or "").strip() or ""
 
     def _requests_proxies(self) -> Optional[Dict[str, str]]:
-        """把代理 URL 转成 requests 的 proxies 字典。"""
+        """把代理 URL 转成 requests 的 proxies 字典；socks5 缺依赖时给出提示。"""
         raw = self._proxy_url()
-        return {"http": raw, "https": raw} if raw else None
+        if not raw:
+            return None
+        if raw.lower().startswith("socks"):
+            try:
+                import socks  # noqa: F401
+            except ImportError:
+                self._log(
+                    "socks5 代理缺少依赖 PySocks（pip install requests[socks]），"
+                    "代理可能不生效，请改用 http 代理或安装依赖", "warning"
+                )
+        return {"http": raw, "https": raw}
 
     # ------------------------------------------------------------------
     # Telegram 接入：Bot API
@@ -917,12 +931,12 @@ class TgArchiveGrabber(_PluginBase):
         params = {
             "offset": cursor + 1,
             "limit": 100,
-            "timeout": 0,
-            "allowed_updates": json.dumps(
-                ["message", "channel_post", "edited_channel_post"]
-            ),
+            "timeout": LONG_POLL_TIMEOUT,
+            "allowed_updates": json.dumps(["message"]),
         }
-        updates = self._bot_api("getUpdates", params, timeout=45) or []
+        # 长轮询：无消息时 Telegram 会挂住连接直到超时，有消息立刻返回
+        updates = self._bot_api("getUpdates", params,
+                                timeout=LONG_POLL_TIMEOUT + 10) or []
         max_round = self._cfg_int("max_files_per_round", 20, 1)
         for update in updates:
             if self._stop_event.is_set():
