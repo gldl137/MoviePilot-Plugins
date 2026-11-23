@@ -216,7 +216,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.6"
+    plugin_version = "1.5.7"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -1061,10 +1061,17 @@ class CasRestore(_PluginBase):
         base = self._cfg_str("target_folder_path").strip().strip("/")
         target_path = f"{base}/{rel}" if (base and rel) else (base or rel)
         try:
-            content = base64.b64encode(path.read_bytes()).decode("ascii")
+            raw = path.read_bytes()
         except OSError as err:
             self._append_record(path.name, target_path, "失败", f"读取失败：{err}")
             return False, f"读取失败：{err}"
+        content = base64.b64encode(raw).decode("ascii")
+        # 诊断：打印 .cas 原始内容前 200 字符，便于排查 CAS 端「文件解析失败」
+        try:
+            preview = raw[:200].decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            preview = repr(raw[:200])
+        self._log(f"[诊断] {path.name} 内容前 200 字符：{preview}")
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
             "scope": self._cfg_str("scope"),
