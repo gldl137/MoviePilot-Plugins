@@ -20,6 +20,7 @@ const cfg = ref({
   target_folder_path: '',
   notify: true,
   onlyonce: false,
+  overwrite: '0',
   ...(props.initialConfig || {}),
 })
 
@@ -29,6 +30,18 @@ const accountHint = ref('')
 const familyHint = ref('')
 const loading = ref(false)
 const saving = ref(false)
+const clearing = ref(false)
+
+async function clearRun() {
+  clearing.value = true
+  try {
+    await props.api.post(`plugin/${props.pluginId}/clear_run`)
+  } catch (e) {
+    console.error('CasRestore clear_run failed', e)
+  } finally {
+    clearing.value = false
+  }
+}
 
 async function loadAccounts() {
   try {
@@ -106,8 +119,19 @@ onMounted(async () => {
           监控目录有新 .cas 写入时自动恢复；CAS 服务地址与 API Key 读取「CAS助手」插件，账号 / 家庭 / 目标路径在此选择。
         </v-alert>
         <v-row>
-          <v-col cols="12">
+          <v-col cols="12" md="3">
             <v-switch v-model="cfg.enabled" label="启用插件" density="compact" hide-details />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-switch v-model="cfg.notify" label="发送通知" density="compact" hide-details />
+          </v-col>
+          <v-col cols="12" md="3">
+            <v-switch v-model="cfg.onlyonce" label="立即运行一次" density="compact" hide-details />
+          </v-col>
+          <v-col cols="12" md="3" class="d-flex align-center">
+            <v-btn color="warning" variant="outlined" block :loading="clearing" @click="clearRun">
+              清除运行记录
+            </v-btn>
           </v-col>
           <v-col cols="12">
             <v-text-field
@@ -165,11 +189,20 @@ onMounted(async () => {
               density="compact"
             />
           </v-col>
-          <v-col cols="12" md="6">
-            <v-switch v-model="cfg.notify" label="发送通知" density="compact" hide-details />
-          </v-col>
-          <v-col cols="12" md="6">
-            <v-switch v-model="cfg.onlyonce" label="立即运行一次" density="compact" hide-details />
+          <v-col cols="12">
+            <v-select
+              v-model="cfg.overwrite"
+              :items="[
+                { title: '跳过（网盘已有同名文件时不恢复）', value: '0' },
+                { title: '覆盖（网盘已有同名文件时覆盖）', value: '1' },
+              ]"
+              label="同名文件"
+              hint="恢复时若网盘已存在同名文件，选择跳过还是覆盖"
+              persistent-hint
+              density="compact"
+              item-title="title"
+              item-value="value"
+            />
           </v-col>
         </v-row>
       </v-card-text>

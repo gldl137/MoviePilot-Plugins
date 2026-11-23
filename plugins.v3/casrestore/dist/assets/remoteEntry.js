@@ -97,7 +97,7 @@ const cssAssetMap = {};
           await Promise.all([]);
           const importModule = await loadExposedModule(
             "./Config",
-            () => __vitePreload(() => import('./Config-DqvYXAcj.js'),true?[]:void 0)
+            () => __vitePreload(() => import('./Config-CLc_0hsI.js'),true?[]:void 0)
           );
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
           if (dependencyPending && typeof dependencyPending.then === "function") {
