@@ -17,8 +17,8 @@ const _hoisted_7 = {
   key: 0,
   class: "text-center text-medium-emphasis py-12"
 };
-const _hoisted_8 = { class: "flex-grow-1 min-w-0" };
-const _hoisted_9 = { class: "record-title text-truncate" };
+const _hoisted_8 = ["title"];
+const _hoisted_9 = { class: "flex-grow-1 min-w-0" };
 const _hoisted_10 = ["title"];
 const _hoisted_11 = ["title"];
 const _hoisted_12 = {
@@ -239,15 +239,18 @@ return (_ctx, _cache) => {
                 ]),
                 _: 2
               }, 1032, ["color"]),
-              __mf_9("div", _hoisted_8, [
-                __mf_9("div", _hoisted_9, __mf_3(rowTitle(r)), 1),
+              __mf_9("div", {
+                class: "record-name text-truncate",
+                title: rowTitle(r)
+              }, __mf_3(rowTitle(r)), 9, _hoisted_8),
+              __mf_9("div", _hoisted_9, [
                 (r.local_path)
                   ? (__mf_13(), __mf_8("div", {
                       key: 0,
                       class: "record-path text-truncate",
                       title: r.local_path
                     }, [
-                      _cache[11] || (_cache[11] = __mf_9("span", { class: "path-tag" }, "监控目录", -1)),
+                      _cache[11] || (_cache[11] = __mf_9("span", { class: "path-tag" }, "监控", -1)),
                       __mf_10(__mf_3(r.local_path), 1)
                     ], 8, _hoisted_10))
                   : __mf_7("", true),
@@ -257,7 +260,7 @@ return (_ctx, _cache) => {
                       class: "record-path text-truncate",
                       title: rowNetPath(r)
                     }, [
-                      _cache[12] || (_cache[12] = __mf_9("span", { class: "path-tag path-tag-net" }, "网盘目录", -1)),
+                      _cache[12] || (_cache[12] = __mf_9("span", { class: "path-tag path-tag-net" }, "网盘", -1)),
                       __mf_10(__mf_3(rowNetPath(r)), 1)
                     ], 8, _hoisted_11))
                   : __mf_7("", true),
@@ -328,6 +331,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e91fecba"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f144e897"]]);
 
 export { AppPage as default };

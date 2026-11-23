@@ -150,13 +150,16 @@ onMounted(load)
           {{ r.status === '成功' ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}
         </v-icon>
 
+        <!-- 第一列：名字 -->
+        <div class="record-name text-truncate" :title="rowTitle(r)">{{ rowTitle(r) }}</div>
+
+        <!-- 第二列：上监控目录 / 下网盘目录 -->
         <div class="flex-grow-1 min-w-0">
-          <div class="record-title text-truncate">{{ rowTitle(r) }}</div>
           <div v-if="r.local_path" class="record-path text-truncate" :title="r.local_path">
-            <span class="path-tag">监控目录</span>{{ r.local_path }}
+            <span class="path-tag">监控</span>{{ r.local_path }}
           </div>
           <div v-if="rowNetPath(r)" class="record-path text-truncate" :title="rowNetPath(r)">
-            <span class="path-tag path-tag-net">网盘目录</span>{{ rowNetPath(r) }}
+            <span class="path-tag path-tag-net">网盘</span>{{ rowNetPath(r) }}
           </div>
           <div v-if="!r.local_path && !rowNetPath(r) && r.message" class="record-path text-truncate">
             {{ r.message }}
@@ -222,13 +225,21 @@ onMounted(load)
   margin-top: 3px;
   white-space: nowrap;
 }
+.record-name {
+  width: 200px;
+  flex-shrink: 0;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding-right: 12px;
+  white-space: nowrap;
+}
 .path-tag {
   display: inline-block;
   font-size: 0.65rem;
   line-height: 1.4;
   padding: 0 4px;
   margin-right: 5px;
-  min-width: 52px;
+  min-width: 32px;
   text-align: center;
   border-radius: 3px;
   background: rgba(var(--v-theme-on-surface), 0.09);
