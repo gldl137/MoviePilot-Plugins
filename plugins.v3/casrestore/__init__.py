@@ -26,6 +26,7 @@ CAS恢复源文件（CasRestore）
     "files": [{"localFileName": "xxx.cas", "content": "<cas 文件内容（JSON 原文，勿 base64）>"}]
 }
 """
+import re
 import threading
 import time
 from collections import deque
@@ -215,7 +216,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.6.0"
+    plugin_version = "1.6.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -1116,10 +1117,21 @@ class CasRestore(_PluginBase):
         """
         target_folder_id = self._cfg_str("target_folder_id")
         target_label = self._cfg_str("target_folder_name") or target_folder_id
+        # 记录页展示字段（参考媒体整理样式：短标题 / 本地路径 / 大小）
+        try:
+            size_bytes = path.stat().st_size if path.exists() else 0
+        except OSError:
+            size_bytes = 0
+        rec_extra: Dict[str, Any] = {
+            "title": self._short_title(path.name),
+            "local_path": str(path),
+            "size": self._format_size(size_bytes),
+        }
         try:
             raw = path.read_bytes()
         except OSError as err:
-            self._append_record(path.name, target_label, "失败", f"读取失败：{err}")
+            self._append_record(path.name, target_label, "失败", f"读取失败：{err}",
+                                extra=rec_extra)
             return False, f"读取失败：{err}"
         # 诊断：打印 .cas 原始内容前 200 字符，便于排查 CAS 端「文件解析失败」
         try:
@@ -1134,7 +1146,8 @@ class CasRestore(_PluginBase):
         try:
             content = raw.decode("utf-8")
         except UnicodeDecodeError as err:
-            self._append_record(path.name, target_label, "失败", f"文件不是 UTF-8 文本：{err}")
+            self._append_record(path.name, target_label, "失败", f"文件不是 UTF-8 文本：{err}",
+                                extra=rec_extra)
             return False, f"文件不是 UTF-8 文本：{err}"
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
@@ -1156,26 +1169,36 @@ class CasRestore(_PluginBase):
             resp.raise_for_status()
             data = resp.json()
         except Exception as err:  # noqa: BLE001
-            self._append_record(path.name, target_label, "失败", f"请求失败：{err}")
+            self._append_record(path.name, target_label, "失败", f"请求失败：{err}",
+                                extra=rec_extra)
             return False, str(err)
         if not data.get("success"):
             message = str((data.get("data") or {}).get("message")
                           or data.get("message") or data)
-            self._append_record(path.name, target_label, "失败", f"接口返回失败：{message}")
+            self._append_record(path.name, target_label, "失败", f"接口返回失败：{message}",
+                                extra=rec_extra)
             return False, message
         rdata = data.get("data") or {}
         results = [r for r in (rdata.get("results") or []) if isinstance(r, dict)]
         result = results[0] if results else {}
         if not result.get("success"):
             reason = str(result.get("message") or "未知原因")
-            self._append_record(path.name, target_label, "失败", reason)
+            self._append_record(path.name, target_label, "失败", reason, extra=rec_extra)
             return False, reason
         mode_text = str(result.get("mode") or "")
-        self._log(f"恢复成功：{path.name} → {result.get('fileName') or path.stem}"
+        restored_name = str(result.get("fileName") or path.stem)
+        net_path = f"/{target_label}/{restored_name}" if target_label else f"/{restored_name}"
+        self._log(f"恢复成功：{path.name} → {restored_name}"
                   f"（{mode_text}），网盘目录 {target_label}")
+        success_extra = dict(rec_extra)
+        success_extra.update({
+            "net_path": net_path,
+            "mode": "移动" if mode_text in ("move", "casRestore") else (mode_text or "恢复"),
+        })
         self._append_record(path.name, target_label, "成功",
-                            f"恢复为 {result.get('fileName') or path.stem}"
-                            + (f"（模式 {mode_text}）" if mode_text else ""))
+                            f"恢复为 {restored_name}"
+                            + (f"（模式 {mode_text}）" if mode_text else ""),
+                            extra=success_extra)
         # 删除本地 .cas 并清空空目录（边界为监控目录本身，不向上越界）
         try:
             path.unlink()
@@ -1184,18 +1207,50 @@ class CasRestore(_PluginBase):
         self._cleanup_empty_dirs(path.parent, watch_dir)
         return True, ""
 
-    def _append_record(self, filename: str, target: str,
-                       status: str, message: str) -> None:
+    @staticmethod
+    def _short_title(filename: str) -> str:
+        """从 .cas 文件名提取剧集短标题：谷雨 - S01E01 - 第 1 集 - 2160p.cas -> 谷雨 S01E01。"""
+        stem = Path(filename).stem
+        parts = [p.strip() for p in re.split(r"\s+-\s+", stem) if p.strip()]
+        if not parts:
+            return stem
+        title = parts[0]
+        ep = ""
+        for part in parts[1:]:
+            m = re.search(r"(S\d{1,2}E\d{1,2})", part, flags=re.IGNORECASE)
+            if m:
+                ep = m.group(1).upper()
+                break
+        return f"{title} {ep}" if ep else title
+
+    @staticmethod
+    def _format_size(size: int) -> str:
+        """字节数转友好大小：344 -> 344.00 B。"""
+        try:
+            value = float(size or 0)
+        except (TypeError, ValueError):
+            value = 0.0
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if value < 1024 or unit == "TB":
+                return f"{value:.2f} {unit}"
+            value /= 1024.0
+        return f"{value:.2f} TB"
+
+    def _append_record(self, filename: str, target: str, status: str, message: str,
+                       extra: Optional[Dict[str, Any]] = None) -> None:
         """追加一条恢复记录（详情页列表，最新在前，最多 200 条）。"""
         try:
             records = self.get_data("restore_records") or []
             if not isinstance(records, list):
                 records = []
-            records.insert(0, {
+            record = {
                 "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "filename": filename, "target": target,
                 "status": status, "message": message,
-            })
+            }
+            if extra:
+                record.update(extra)
+            records.insert(0, record)
             self.save_data("restore_records", records[:200])
         except Exception as err:  # noqa: BLE001
             self._log(f"写入恢复记录失败：{err}", "warning")

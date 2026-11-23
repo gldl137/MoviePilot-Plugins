@@ -43,6 +43,28 @@ const rangeText = computed(() => {
   return `${start}-${end} / ${data.value.records.length}`
 })
 
+function relativeTime(text) {
+  if (!text) return ''
+  const t = new Date(String(text).replace(/-/g, '/')).getTime()
+  if (Number.isNaN(t)) return text
+  const diff = Math.max(0, Date.now() - t)
+  const min = Math.floor(diff / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}分钟前`
+  const hour = Math.floor(min / 60)
+  if (hour < 24) return `${hour}小时前`
+  const day = Math.floor(hour / 24)
+  if (day < 30) return `${day}天前`
+  return text
+}
+
+function rowTitle(r) {
+  return r.title || (String(r.filename || '').replace(/\.cas$/i, ''))
+}
+function rowNetPath(r) {
+  return r.net_path || r.target || ''
+}
+
 async function load() {
   loading.value = true
   try {
@@ -121,7 +143,7 @@ onMounted(load)
         class="record-row d-flex align-center"
       >
         <v-icon
-          size="20"
+          size="22"
           class="mr-3 flex-shrink-0"
           :color="r.status === '成功' ? 'success' : 'error'"
         >
@@ -129,24 +151,30 @@ onMounted(load)
         </v-icon>
 
         <div class="flex-grow-1 min-w-0">
-          <div class="record-title text-truncate">{{ r.filename }}</div>
-          <div class="record-sub text-truncate">
-            <v-icon size="12" class="mr-1">mdi-cloud-upload-outline</v-icon>恢复到：{{ r.target }}
+          <div class="record-title text-truncate">{{ rowTitle(r) }}</div>
+          <div v-if="r.local_path" class="record-path text-truncate" :title="r.local_path">
+            <span class="path-tag">本地</span>{{ r.local_path }}
           </div>
-          <div v-if="r.message" class="record-sub text-truncate">
-            <v-icon size="12" class="mr-1">mdi-text-box-outline</v-icon>{{ r.message }}
+          <div v-if="rowNetPath(r)" class="record-path text-truncate" :title="rowNetPath(r)">
+            <span class="path-tag path-tag-net">网盘</span>{{ rowNetPath(r) }}
+          </div>
+          <div v-if="!r.local_path && !rowNetPath(r) && r.message" class="record-path text-truncate">
+            {{ r.message }}
           </div>
         </div>
 
-        <v-chip
-          size="x-small"
-          variant="tonal"
-          class="ml-3 flex-shrink-0"
-          :color="r.status === '成功' ? 'success' : 'error'"
-        >
-          {{ r.status }}
-        </v-chip>
-        <span class="record-time ml-3 flex-shrink-0">{{ r.time }}</span>
+        <div class="d-flex flex-column align-end flex-shrink-0 ml-3" style="gap: 3px">
+          <div class="d-flex align-center" style="gap: 4px">
+            <v-chip size="x-small" variant="tonal" :color="r.status === '成功' ? 'success' : 'error'">
+              {{ r.status }}
+            </v-chip>
+            <v-chip v-if="r.mode" size="x-small" variant="tonal" color="primary">{{ r.mode }}</v-chip>
+          </div>
+          <div class="d-flex align-center" style="gap: 6px">
+            <span v-if="r.size" class="record-meta">{{ r.size }}</span>
+            <span class="record-meta">{{ relativeTime(r.time) }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- 底部分页 -->
@@ -188,13 +216,29 @@ onMounted(load)
   font-size: 0.9rem;
   font-weight: 500;
 }
-.record-sub {
+.record-path {
   font-size: 0.75rem;
   color: rgba(var(--v-theme-on-surface), 0.55);
-  margin-top: 2px;
+  margin-top: 3px;
+  white-space: nowrap;
 }
-.record-time {
-  font-size: 0.75rem;
+.path-tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  line-height: 1.4;
+  padding: 0 4px;
+  margin-right: 5px;
+  border-radius: 3px;
+  background: rgba(var(--v-theme-on-surface), 0.09);
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  vertical-align: middle;
+}
+.path-tag-net {
+  background: rgba(var(--v-theme-primary), 0.14);
+  color: rgb(var(--v-theme-primary));
+}
+.record-meta {
+  font-size: 0.72rem;
   color: rgba(var(--v-theme-on-surface), 0.55);
   white-space: nowrap;
 }

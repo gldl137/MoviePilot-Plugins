@@ -1,4 +1,4 @@
-import { c as __mf_1, d as __mf_5, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, g as __mf_9, h as __mf_10, i as __mf_3, j as __mf_4, k as __mf_7, l as __mf_11, m as __mf_17, n as __mf_14 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
+import { c as __mf_1, d as __mf_5, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, g as __mf_9, h as __mf_10, i as __mf_3, j as __mf_4, k as __mf_7, l as __mf_11, m as __mf_17, n as __mf_14, o as __mf_6 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
 import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 const _hoisted_1 = { class: "pa-4" };
@@ -19,17 +19,34 @@ const _hoisted_7 = {
 };
 const _hoisted_8 = { class: "flex-grow-1 min-w-0" };
 const _hoisted_9 = { class: "record-title text-truncate" };
-const _hoisted_10 = { class: "record-sub text-truncate" };
-const _hoisted_11 = {
-  key: 0,
-  class: "record-sub text-truncate"
+const _hoisted_10 = ["title"];
+const _hoisted_11 = ["title"];
+const _hoisted_12 = {
+  key: 2,
+  class: "record-path text-truncate"
 };
-const _hoisted_12 = { class: "record-time ml-3 flex-shrink-0" };
 const _hoisted_13 = {
+  class: "d-flex flex-column align-end flex-shrink-0 ml-3",
+  style: {"gap":"3px"}
+};
+const _hoisted_14 = {
+  class: "d-flex align-center",
+  style: {"gap":"4px"}
+};
+const _hoisted_15 = {
+  class: "d-flex align-center",
+  style: {"gap":"6px"}
+};
+const _hoisted_16 = {
+  key: 0,
+  class: "record-meta"
+};
+const _hoisted_17 = { class: "record-meta" };
+const _hoisted_18 = {
   class: "d-flex align-center justify-space-between flex-wrap mt-4",
   style: {"gap":"8px"}
 };
-const _hoisted_14 = { class: "text-body-2 text-medium-emphasis" };
+const _hoisted_19 = { class: "text-body-2 text-medium-emphasis" };
 
 
 const _sfc_main = {
@@ -78,6 +95,28 @@ const rangeText = __mf_5(() => {
   const end = Math.min(page.value * itemsPerPage.value, data.value.records.length);
   return `${start}-${end} / ${data.value.records.length}`
 });
+
+function relativeTime(text) {
+  if (!text) return ''
+  const t = new Date(String(text).replace(/-/g, '/')).getTime();
+  if (Number.isNaN(t)) return text
+  const diff = Math.max(0, Date.now() - t);
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min}分钟前`
+  const hour = Math.floor(min / 60);
+  if (hour < 24) return `${hour}小时前`
+  const day = Math.floor(hour / 24);
+  if (day < 30) return `${day}天前`
+  return text
+}
+
+function rowTitle(r) {
+  return r.title || (String(r.filename || '').replace(/\.cas$/i, ''))
+}
+function rowNetPath(r) {
+  return r.net_path || r.target || ''
+}
 
 async function load() {
   loading.value = true;
@@ -191,7 +230,7 @@ return (_ctx, _cache) => {
               class: "record-row d-flex align-center"
             }, [
               __mf_11(_component_v_icon, {
-                size: "20",
+                size: "22",
                 class: "mr-3 flex-shrink-0",
                 color: r.status === '成功' ? 'success' : 'error'
               }, {
@@ -201,49 +240,67 @@ return (_ctx, _cache) => {
                 _: 2
               }, 1032, ["color"]),
               __mf_9("div", _hoisted_8, [
-                __mf_9("div", _hoisted_9, __mf_3(r.filename), 1),
-                __mf_9("div", _hoisted_10, [
-                  __mf_11(_component_v_icon, {
-                    size: "12",
-                    class: "mr-1"
-                  }, {
-                    default: __mf_17(() => [...(_cache[11] || (_cache[11] = [
-                      __mf_10("mdi-cloud-upload-outline", -1)
-                    ]))]),
-                    _: 1
-                  }),
-                  __mf_10("恢复到：" + __mf_3(r.target), 1)
-                ]),
-                (r.message)
-                  ? (__mf_13(), __mf_8("div", _hoisted_11, [
-                      __mf_11(_component_v_icon, {
-                        size: "12",
-                        class: "mr-1"
-                      }, {
-                        default: __mf_17(() => [...(_cache[12] || (_cache[12] = [
-                          __mf_10("mdi-text-box-outline", -1)
-                        ]))]),
-                        _: 1
-                      }),
-                      __mf_10(__mf_3(r.message), 1)
-                    ]))
+                __mf_9("div", _hoisted_9, __mf_3(rowTitle(r)), 1),
+                (r.local_path)
+                  ? (__mf_13(), __mf_8("div", {
+                      key: 0,
+                      class: "record-path text-truncate",
+                      title: r.local_path
+                    }, [
+                      _cache[11] || (_cache[11] = __mf_9("span", { class: "path-tag" }, "本地", -1)),
+                      __mf_10(__mf_3(r.local_path), 1)
+                    ], 8, _hoisted_10))
+                  : __mf_7("", true),
+                (rowNetPath(r))
+                  ? (__mf_13(), __mf_8("div", {
+                      key: 1,
+                      class: "record-path text-truncate",
+                      title: rowNetPath(r)
+                    }, [
+                      _cache[12] || (_cache[12] = __mf_9("span", { class: "path-tag path-tag-net" }, "网盘", -1)),
+                      __mf_10(__mf_3(rowNetPath(r)), 1)
+                    ], 8, _hoisted_11))
+                  : __mf_7("", true),
+                (!r.local_path && !rowNetPath(r) && r.message)
+                  ? (__mf_13(), __mf_8("div", _hoisted_12, __mf_3(r.message), 1))
                   : __mf_7("", true)
               ]),
-              __mf_11(_component_v_chip, {
-                size: "x-small",
-                variant: "tonal",
-                class: "ml-3 flex-shrink-0",
-                color: r.status === '成功' ? 'success' : 'error'
-              }, {
-                default: __mf_17(() => [
-                  __mf_10(__mf_3(r.status), 1)
+              __mf_9("div", _hoisted_13, [
+                __mf_9("div", _hoisted_14, [
+                  __mf_11(_component_v_chip, {
+                    size: "x-small",
+                    variant: "tonal",
+                    color: r.status === '成功' ? 'success' : 'error'
+                  }, {
+                    default: __mf_17(() => [
+                      __mf_10(__mf_3(r.status), 1)
+                    ]),
+                    _: 2
+                  }, 1032, ["color"]),
+                  (r.mode)
+                    ? (__mf_13(), __mf_6(_component_v_chip, {
+                        key: 0,
+                        size: "x-small",
+                        variant: "tonal",
+                        color: "primary"
+                      }, {
+                        default: __mf_17(() => [
+                          __mf_10(__mf_3(r.mode), 1)
+                        ]),
+                        _: 2
+                      }, 1024))
+                    : __mf_7("", true)
                 ]),
-                _: 2
-              }, 1032, ["color"]),
-              __mf_9("span", _hoisted_12, __mf_3(r.time), 1)
+                __mf_9("div", _hoisted_15, [
+                  (r.size)
+                    ? (__mf_13(), __mf_8("span", _hoisted_16, __mf_3(r.size), 1))
+                    : __mf_7("", true),
+                  __mf_9("span", _hoisted_17, __mf_3(relativeTime(r.time)), 1)
+                ])
+              ])
             ]))
           }), 128)),
-          __mf_9("div", _hoisted_13, [
+          __mf_9("div", _hoisted_18, [
             __mf_11(_component_v_select, {
               modelValue: itemsPerPage.value,
               "onUpdate:modelValue": [
@@ -256,7 +313,7 @@ return (_ctx, _cache) => {
               "hide-details": "",
               style: {"max-width":"130px"}
             }, null, 8, ["modelValue"]),
-            __mf_9("span", _hoisted_14, __mf_3(rangeText.value), 1),
+            __mf_9("span", _hoisted_19, __mf_3(rangeText.value), 1),
             __mf_11(_component_v_pagination, {
               modelValue: page.value,
               "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((page).value = $event)),
@@ -271,6 +328,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e777ef1"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e998aa7"]]);
 
 export { AppPage as default };
