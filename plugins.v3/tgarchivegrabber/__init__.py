@@ -107,21 +107,6 @@ def _tf(model: str, label: str, hint: str = "", placeholder: str = "",
     }
 
 
-def _ta(model: str, label: str, hint: str = "", placeholder: str = "",
-        rows: int = 4, md: int = 12) -> Dict[str, Any]:
-    """构造一个配置页多行文本框。"""
-    props: Dict[str, Any] = {"model": model, "label": label, "rows": str(rows)}
-    if hint:
-        props["hint"] = hint
-    if placeholder:
-        props["placeholder"] = placeholder
-    return {
-        "component": "VCol",
-        "props": {"cols": 12, "md": md},
-        "content": [{"component": "VTextarea", "props": props}],
-    }
-
-
 def _sw(model: str, label: str, hint: str = "", md: int = 3) -> Dict[str, Any]:
     """构造一个配置页开关。"""
     props: Dict[str, Any] = {"model": model, "label": label}
@@ -245,7 +230,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.6.0"
+    plugin_version = "1.6.1"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -260,6 +245,12 @@ class TgArchiveGrabber(_PluginBase):
         "chat_id": "",
         "download_dir": "/downloads/tgarchives",
         "bots": "",
+        "bot1_token": "",
+        "bot1_chat_id": "",
+        "bot1_download_dir": "",
+        "bot2_token": "",
+        "bot2_chat_id": "",
+        "bot2_download_dir": "",
         "keywords": "",
         "exclude_keywords": "",
         "senders": "",
@@ -306,14 +297,28 @@ class TgArchiveGrabber(_PluginBase):
         self.stop_service()
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
-        # 迁移旧的单机器人配置到多机器人文本，避免旧用户升级后配置丢失；
-        # 迁移后清空旧字段，防止清空 bots 时又被回退逻辑拉回。
-        if not self._cfg_str("bots"):
+        # 迁移旧版配置（多行文本 / 单机器人字段）到机器人 1 / 机器人 2 独立字段
+        if not self._cfg_str("bot1_token"):
+            lines = [ln.strip() for ln in self._cfg_str("bots").splitlines()
+                     if ln.strip() and not ln.strip().startswith("#")]
+            for i, prefix in enumerate(("bot1", "bot2")):
+                if i >= len(lines):
+                    break
+                parts = [p.strip() for p in lines[i].split("|", 2)]
+                if len(parts) == 3 and all(parts):
+                    self._config[f"{prefix}_token"] = parts[0]
+                    self._config[f"{prefix}_chat_id"] = parts[1]
+                    self._config[f"{prefix}_download_dir"] = parts[2]
+            if self._cfg_str("bot1_token"):
+                self._config["bots"] = ""
+        if not self._cfg_str("bot1_token"):
             token = self._cfg_str("bot_token")
             chat_id = self._cfg_str("chat_id")
             download_dir = self._cfg_str("download_dir")
             if token and chat_id and download_dir:
-                self._config["bots"] = f"{token}|{chat_id}|{download_dir}"
+                self._config["bot1_token"] = token
+                self._config["bot1_chat_id"] = chat_id
+                self._config["bot1_download_dir"] = download_dir
                 self._config["bot_token"] = ""
                 self._config["chat_id"] = ""
                 self._config["download_dir"] = ""
@@ -379,17 +384,32 @@ class TgArchiveGrabber(_PluginBase):
             _alert(
                 "把压缩包转发给机器人即可：实时接收 → 自动下载解压到「下载目录/completed」"
                 "（平铺、不保留包内文件夹）→ 按设置处理原包。单文件限 20MB，超限请拆分分卷"
-                "或自建 Bot API Server。"
+                "或自建 Bot API Server。机器人 2 可选，留空则只启用机器人 1。"
             ),
             _row(
                 _sw("enabled", "启用插件", md=12),
             ),
-            _ta(
-                "bots", "机器人列表（每行一个机器人）",
-                "格式：BotToken|ChatID|下载目录。Chat ID 支持数字或 @用户名，# 开头为注释；"
-                "每个机器人收到的压缩包各自解压到对应目录下的 completed 子目录。",
-                "123456:ABC-DEF|123456789|/downloads/tg1",
-                rows=5,
+            _row(
+                _tf("bot1_token", "机器人1 Bot Token", "从 @BotFather 获取", "", "text", md=6),
+                _tf("bot1_chat_id", "机器人1 Chat ID",
+                    "只处理该用户转发的压缩包；给机器人发条消息后点「测试连接」可自动获取",
+                    "", "text", md=6),
+            ),
+            _row(
+                _tf("bot1_download_dir", "机器人1 下载目录",
+                    "容器内绝对路径；解压输出到该目录下的 completed 子目录",
+                    "/downloads/tg1", md=12),
+            ),
+            _row(
+                _tf("bot2_token", "机器人2 Bot Token（可选）", "留空则不启用机器人2",
+                    "", "text", md=6),
+                _tf("bot2_chat_id", "机器人2 Chat ID",
+                    "支持数字或 @用户名", "", "text", md=6),
+            ),
+            _row(
+                _tf("bot2_download_dir", "机器人2 下载目录",
+                    "启用机器人2 时必填；解压输出到该目录下的 completed 子目录",
+                    "/downloads/tg2", md=12),
             ),
             _row(
                 _tf("proxy", "代理地址",
@@ -612,29 +632,37 @@ class TgArchiveGrabber(_PluginBase):
                      for x in _split_list(DEFAULT_EXTS))
 
     def _bots(self) -> List[Dict[str, str]]:
-        """解析多机器人配置，返回 [{'token','chat_id','download_dir'}, ...]。
+        """解析机器人配置，返回 [{'token','chat_id','download_dir'}, ...]。
 
-        优先读 bots 多行文本（每行「BotToken|ChatID|下载目录」，# 开头为注释）；
-        为空时回退到旧的单机器人字段 bot_token/chat_id/download_dir。
+        优先读机器人 1 / 机器人 2 的独立字段；都为空时依次兼容旧版
+        「bots 多行文本」与更早的单机器人字段 bot_token/chat_id/download_dir。
         """
         bots: List[Dict[str, str]] = []
+        for prefix in ("bot1", "bot2"):
+            token = self._cfg_str(f"{prefix}_token")
+            chat_id = self._cfg_str(f"{prefix}_chat_id")
+            download_dir = self._cfg_str(f"{prefix}_download_dir")
+            if token and chat_id and download_dir:
+                bots.append({"token": token, "chat_id": chat_id,
+                             "download_dir": download_dir,
+                             "fp": _token_fp(token)})
+        if bots:
+            return bots
+        # 兼容旧版多行文本配置（每行 BotToken|ChatID|下载目录）
         raw = self._cfg_str("bots")
-        if raw:
-            for line in raw.splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = [p.strip() for p in line.split("|", 2)]
-                if len(parts) < 3:
-                    continue
-                token, chat_id, download_dir = parts[0], parts[1], parts[2]
-                if token and chat_id and download_dir:
-                    bots.append({"token": token, "chat_id": chat_id,
-                                 "download_dir": download_dir,
-                                 "fp": _token_fp(token)})
-            if bots:
-                return bots
-        # 向后兼容旧的单机器人配置
+        for line in (raw or "").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|", 2)]
+            if len(parts) < 3 or not all(parts):
+                continue
+            bots.append({"token": parts[0], "chat_id": parts[1],
+                         "download_dir": parts[2],
+                         "fp": _token_fp(parts[0])})
+        if bots:
+            return bots
+        # 兼容更早的单机器人配置
         token = self._cfg_str("bot_token")
         chat_id = self._cfg_str("chat_id")
         download_dir = self._cfg_str("download_dir")
