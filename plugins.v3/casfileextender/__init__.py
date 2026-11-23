@@ -159,16 +159,67 @@ def _background_refresh_monitor() -> None:
 
 
 # ---------------- OpenList/AList 上传回查兜底 ----------------
-# 背景：宿主 Alist.upload() 在 PUT /api/fs/put 返回 200 后会立刻调用
-# _delay_get_item(target_path, refresh=True) 回查目标文件，2 次失败（各 sleep 2s）即
-# 返回 None，被整理链翻译成「上传 alist 失败」。CAS 秒传场景里，网盘端实际已把视频
-# 落盘（.cas 被消费/改名成真实视频名），所以按原始 .cas 路径回查必然 object not found。
-# 宿主的 create_folder/copy/move 早已用 __build_transfer_item 对「操作成功但元数据短时
-# 不可见」做了兜底，唯独 upload() 漏了。这里给 upload 补上同样的兜底。
+# 背景（CAS 秒传 + MoviePilot 新版整理执行器）：
+#   1) 本地 .cas 作为跨存储 move 上传到 OpenList 目标路径 xxx.cas；
+#   2) CAS 服务监控网盘目录、消费掉 xxx.cas 并恢复出真实视频 xxx.mkv；
+#   3) 宿主 Alist.upload() 的 PUT 成功后回查 xxx.cas 必然 object not found；
+#   4) 更致命的是跨存储 move 的「删本地源前核对」步骤会再查一次 xxx.cas，
+#      查不到即抛「文件 xxx.cas 已不可见」→ 外部结果 conflict → 转人工复核。
+# 对策：
+#   - patch Alist.upload：回查不到时按目标路径合成 FileItem（沿用宿主兜底模式）；
+#   - patch Alist.get_item_strict：对刚由本插件合成的 .cas 路径，若宿主查不到，
+#     则核对同目录是否存在 CAS 产出的视频（basename 相同、非 .cas）作为证据，
+#     存在则合成 .cas FileItem 通过核对；不存在照常返回 None（保留数据安全保护）。
 
 _upload_fallback_enabled: bool = False  # 由插件实例启用状态驱动，禁用时不兜底
 _alist_upload_patched: bool = False
 _orig_alist_upload = None  # type: ignore
+_orig_alist_get_item_strict = None  # type: ignore
+
+# 本插件合成的目标 .cas 项缓存：path(as_posix) -> {size, basename, ts}
+# 供 get_item_strict 兜底核对时复用 size（保证与 __assert_file_identity 的 expected 一致），
+# 短时窗口后自动失效，避免长期干预宿主查询。
+_cas_pending_lock = threading.Lock()
+_cas_pending: Dict[str, Dict[str, Any]] = {}
+_CAS_PENDING_TTL = 180.0  # 秒；跨存储 move 删源核对通常在数秒内完成
+
+# 判断 CAS 产出文件是否为视频（basename 相同、非 .cas 即可，白名单优先）
+_CAS_OUTPUT_EXTS = INNER_VIDEO_EXTS | {
+    ".mkv", ".mp4", ".avi", ".mov", ".ts", ".flv", ".wmv", ".rmvb", ".webm",
+}
+
+
+def _remember_cas_target(target_path: Any, size: Optional[int], basename: str) -> None:
+    try:
+        key = Path(str(target_path)).as_posix()
+        with _cas_pending_lock:
+            _cas_pending[key] = {"size": size, "basename": basename, "ts": time.time()}
+    except Exception:
+        pass
+
+
+def _forget_cas_target(target_path: Any) -> None:
+    try:
+        with _cas_pending_lock:
+            _cas_pending.pop(Path(str(target_path)).as_posix(), None)
+    except Exception:
+        pass
+
+
+def _get_cas_pending(target_path: Any) -> Optional[Dict[str, Any]]:
+    try:
+        key = Path(str(target_path)).as_posix()
+        now = time.time()
+        with _cas_pending_lock:
+            info = _cas_pending.get(key)
+            if not info:
+                return None
+            if now - float(info.get("ts", 0)) > _CAS_PENDING_TTL:
+                _cas_pending.pop(key, None)
+                return None
+            return dict(info)
+    except Exception:
+        return None
 
 
 def _build_uploaded_fileitem(storage_oper: Any, target_dir: Any, path: Any,
@@ -203,13 +254,16 @@ def _build_uploaded_fileitem(storage_oper: Any, target_dir: Any, path: Any,
     builder = (getattr(storage_oper, "_Alist__build_transfer_item", None)
                or getattr(storage_oper, "__build_transfer_item", None))
     if callable(builder):
-        return builder(source_item, target_path)
+        item = builder(source_item, target_path)
+        _remember_cas_target(target_path, size, Path(target_name).stem)
+        return item
 
     # 降级：直接构造 FileItem（兼容宿主把私有方法改名/移除的情况）
     try:
         from app.schemas.file import FileItem
         schema = getattr(type(storage_oper), "schema", None)
         storage_value = getattr(schema, "value", "alist") if schema is not None else "alist"
+        _remember_cas_target(target_path, size, Path(target_name).stem)
         return FileItem(
             storage=storage_value,
             type="file",
@@ -225,12 +279,49 @@ def _build_uploaded_fileitem(storage_oper: Any, target_dir: Any, path: Any,
         return None
 
 
+def _find_cas_output(storage_oper: Any, target_path: Any, basename: str) -> Optional[Any]:
+    """
+    在 .cas 目标同目录查找 CAS 恢复产出的视频文件（basename 相同、扩展名为视频）。
+
+    找到返回该文件项（作为 CAS 已成功恢复的证据），否则 None。
+    """
+    try:
+        parent = Path(str(target_path)).parent
+        parent_as_posix = parent.as_posix()
+        # 用一个目录 FileItem 调 list；不同宿主签名可能是 path 或 fileitem
+        try:
+            from app.schemas.file import FileItem as _FI
+            dir_item = _FI(storage="alist", type="dir", path=parent_as_posix)
+        except Exception:
+            dir_item = None
+        entries: List[Any] = []
+        if dir_item is not None:
+            try:
+                entries = list(storage_oper.list(dir_item) or [])
+            except TypeError:
+                entries = list(storage_oper.list(fileitem=dir_item) or [])
+        for entry in entries:
+            name = str(getattr(entry, "name", "") or "")
+            if not name or name.lower().endswith(f".{DEFAULT_EXT}"):
+                continue
+            if Path(name).stem.lower() != str(basename).lower():
+                continue
+            if Path(name).suffix.lower() not in _CAS_OUTPUT_EXTS:
+                continue
+            return entry
+    except Exception as err:
+        logger.debug(f"CAS视频扩展：查找 CAS 产出文件失败：{err}")
+    return None
+
+
 def _patch_alist_upload() -> None:
     """
-    monkey-patch Alist.upload：PUT 成功但回查不到 .cas 时，用目标路径合成文件项返回，
-    避免整理任务被误判为「上传 alist 失败」。类级 patch，幂等。
+    monkey-patch Alist.upload / get_item_strict：
+    - upload 回查不到 .cas 时用目标路径合成 FileItem；
+    - get_item_strict 对已知 CAS 目标路径查不到时，凭同目录 CAS 产出视频合成文件项通过核对。
+    类级 patch，幂等。
     """
-    global _alist_upload_patched, _orig_alist_upload
+    global _alist_upload_patched, _orig_alist_upload, _orig_alist_get_item_strict
     if _alist_upload_patched:
         return
     try:
@@ -240,19 +331,41 @@ def _patch_alist_upload() -> None:
         return
 
     _orig_alist_upload = Alist.upload
+    _orig_alist_get_item_strict = Alist.get_item_strict
 
     def upload_with_cas_fallback(self, *args, **kwargs):
         result = _orig_alist_upload(self, *args, **kwargs)
-        if result is not None or not _upload_fallback_enabled:
-            return result
 
         # 兼容不同宿主签名：upload(fileitem, path, new_name=None, task=False)
         target_dir = args[0] if len(args) > 0 else kwargs.get("fileitem")
         path = args[1] if len(args) > 1 else kwargs.get("path")
         new_name = args[2] if len(args) > 2 else kwargs.get("new_name")
         if not path or not str(path).lower().endswith(f".{DEFAULT_EXT}"):
-            return None
+            return result
+        if not _upload_fallback_enabled:
+            return result
 
+        # 无论宿主 upload 是否自带兜底，都登记 CAS 目标，供后续严格查询核对使用。
+        # size 取上传结果（若宿主已合成）或本地 .cas 文件；必须与整理核对的 expected 一致。
+        try:
+            target_dir_str = str(getattr(target_dir, "path", "") or "")
+            target_name = new_name or Path(str(path)).name
+            if target_dir_str and target_name:
+                target_path = Path(target_dir_str) / target_name
+                size = getattr(result, "size", None) if result is not None else None
+                if size is None:
+                    try:
+                        size = Path(str(path)).stat().st_size
+                    except Exception:
+                        size = None
+                _remember_cas_target(target_path, size, Path(target_name).stem)
+        except Exception as err:
+            logger.debug(f"CAS视频扩展：登记 CAS 目标失败：{err}")
+
+        if result is not None:
+            return result
+
+        # 宿主 upload 未兜底：这里按目标路径合成，避免「上传 alist 失败」
         try:
             item = _build_uploaded_fileitem(self, target_dir, path, new_name)
             if item is not None:
@@ -265,17 +378,83 @@ def _patch_alist_upload() -> None:
             logger.warning(f"CAS视频扩展：上传回查兜底异常：{err}")
             return None
 
+    def get_item_strict_with_cas(self, path: Any, *args, **kwargs):
+        result = _orig_alist_get_item_strict(self, path, *args, **kwargs)
+        if result is not None or not _upload_fallback_enabled or path is None:
+            return result
+
+        # 只处理 .cas 目标路径，且宿主明确报不存在（None）
+        path_str = str(path)
+        if not path_str.lower().endswith(f".{DEFAULT_EXT}"):
+            return result
+        pending = _get_cas_pending(path)
+        basename = str((pending or {}).get("basename") or Path(path_str).stem)
+
+        # 核对 CAS 产出证据：同目录存在 basename 相同的视频文件
+        output = _find_cas_output(self, path, basename)
+        if output is None:
+            if pending:
+                logger.info(
+                    f"CAS视频扩展：{path_str} 不可见且未发现 CAS 产出视频，保留原生结果（数据安全）"
+                )
+            return None
+
+        # size 优先取上传登记值（与整理核对的 new_item 一致）；
+        # 无登记（如 upload patch 未覆盖到）时用 CAS 产出视频的 size 兜底。
+        size = (pending or {}).get("size")
+        if size is None:
+            size = getattr(output, "size", None)
+
+        # 合成 .cas FileItem：size 必须与核对方的 expected 一致，否则身份核对失败
+        from types import SimpleNamespace
+        src = SimpleNamespace(
+            type="file",
+            size=size,
+            modify_time=getattr(output, "modify_time", None),
+            thumbnail=None,
+        )
+        target_path = Path(path_str)
+        builder = (getattr(self, "_Alist__build_transfer_item", None)
+                   or getattr(self, "__build_transfer_item", None))
+        item = None
+        if callable(builder):
+            item = builder(src, target_path)
+        if item is None:
+            try:
+                from app.schemas.file import FileItem
+                schema = getattr(type(self), "schema", None)
+                storage_value = getattr(schema, "value", "alist") if schema is not None else "alist"
+                item = FileItem(
+                    storage=storage_value,
+                    type="file",
+                    path=target_path.as_posix(),
+                    name=target_path.name,
+                    basename=target_path.stem,
+                    extension=DEFAULT_EXT,
+                    size=size,
+                    modify_time=getattr(output, "modify_time", None),
+                )
+            except Exception as err:
+                logger.warning(f"CAS视频扩展：严格查询兜底合成文件项失败：{err}")
+                return None
+        logger.info(
+            f"CAS视频扩展：{path_str} 已被 CAS 消费，凭同目录产出视频 "
+            f"{getattr(output, 'name', '?')} 合成文件项通过整理核对"
+        )
+        return item
+
     Alist.upload = upload_with_cas_fallback
+    Alist.get_item_strict = get_item_strict_with_cas
     _alist_upload_patched = True
-    logger.info("CAS视频扩展：已为 OpenList 上传加 .cas 回查兜底")
+    logger.info("CAS视频扩展：已为 OpenList 上传与严格查询加 .cas 秒传兜底")
 
 
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链与目录监控的扩展名缓存，并修复 CAS 秒传成功后 OpenList 上传回查误报「上传 alist 失败」的问题。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链与目录监控扩展名缓存，并修复 CAS 秒传消费 .cas 后 OpenList 上传回查误报「上传 alist 失败」及跨存储 move 核对冲突转人工复核的问题。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.30"
+    plugin_version = "1.31"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -302,7 +481,7 @@ class CasFileExtender(_PluginBase):
         _refresh_native_monitor()
         # Monitor 可能晚于插件启动，后台重试直到刷新成功
         threading.Thread(target=_background_refresh_monitor, daemon=True).start()
-        # 为 OpenList 上传加 .cas 回查兜底（类级 patch，幂等）
+        # 为 OpenList 上传/严格查询加 .cas 秒传兜底（类级 patch，幂等）
         if self._upload_fallback:
             _patch_alist_upload()
 
@@ -356,8 +535,8 @@ class CasFileExtender(_PluginBase):
                                         "component": "VSwitch",
                                         "props": {
                                             "model": "upload_fallback",
-                                            "label": "上传回查兜底",
-                                            "hint": "CAS 秒传在网盘已成功、但 alist 回查目标 .cas 报 object not found 时，按目标路径合成文件项继续整理，避免误报「上传 alist 失败」",
+                                            "label": "秒传核对兜底",
+                                            "hint": "CAS 秒传消费 .cas、在网盘生成同名视频后，alist 回查/核对 .cas 会 object not found。开启后凭同目录已产出的视频合成文件项，修复「上传 alist 失败」及跨存储 move 核对冲突转人工复核；CAS 未产出视频时仍按原生失败处理，保护数据安全",
                                         },
                                     }
                                 ],
