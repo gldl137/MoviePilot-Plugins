@@ -216,7 +216,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.6.6"
+    plugin_version = "1.7.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -857,8 +857,8 @@ class CasRestore(_PluginBase):
             return [], str(err)
 
     def _fetch_folders(self, account_id: str, scope: str, family_id: str,
-                       folder_id: str = "-11",
-                       timeout: int = 8) -> Tuple[List[Dict[str, Any]], str]:
+                       folder_id: str = "-11", timeout: int = 8,
+                       force_refresh: bool = False) -> Tuple[List[Dict[str, Any]], str]:
         """
         从 CAS 服务拉取指定目录下的子文件夹（GET /api/folders/{accountId}）。
 
@@ -874,7 +874,9 @@ class CasRestore(_PluginBase):
             session = self._new_session()
             headers = {"x-api-key": api_key} if api_key else {}
             params: Dict[str, str] = {
-                "folderId": folder_id, "forceRefresh": "false", "scope": scope}
+                "folderId": folder_id,
+                "forceRefresh": "true" if force_refresh else "false",
+                "scope": scope}
             if scope == "family":
                 params["familyId"] = family_id
             resp = session.get(f"{host}/api/folders/{account_id}",
@@ -895,6 +897,59 @@ class CasRestore(_PluginBase):
             return items, ""
         except Exception as err:  # noqa: BLE001
             return [], str(err)
+
+    def _ensure_folder(self, account_id: str, parent_folder_id: str,
+                       folder_name: str, scope: str, family_id: str,
+                       retries: int = 4) -> Tuple[str, str]:
+        """
+        在 parent_folder_id 下确保 folder_name 子目录存在，返回 (folder_id, error)。
+
+        CAS 抓包：
+          POST /api/accounts/createFolder
+            {"accountId":2, "parentFolderId":"...", "folderName":"1"} -> {"success":true}
+          创建后目录异步可见，需 GET /api/folders/{accountId}?folderId=<parent>&forceRefresh=true 反查拿 id。
+        """
+        folder_name = (folder_name or "").strip()
+        if not folder_name:
+            return "", "目录名为空"
+        host, api_key, _ = self._resolve_cas()
+        if not host:
+            return "", "未获取到 CAS 服务地址（请先配置 CAS助手 插件）"
+        if requests is None:
+            return "", "当前环境缺少 requests 库"
+        try:
+            account_int = int(float(account_id or 0) or 0)
+            session = self._new_session()
+            headers = {"x-api-key": api_key} if api_key else {}
+            # 先查是否已存在（幂等）
+            existing, _ = self._fetch_folders(account_id, scope, family_id,
+                                              parent_folder_id, force_refresh=False)
+            for item in existing:
+                if str(item.get("name") or "") == folder_name:
+                    return str(item.get("value") or ""), ""
+            # 创建
+            resp = session.post(f"{host}/api/accounts/createFolder",
+                                json={"accountId": account_int,
+                                      "parentFolderId": parent_folder_id,
+                                      "folderName": folder_name},
+                                headers=headers, timeout=8)
+            if resp.status_code != 200:
+                return "", f"创建目录 HTTP {resp.status_code}: {resp.text[:150]}"
+            data = resp.json()
+            if not data.get("success"):
+                return "", str(data.get("message") or "创建目录失败")
+            # 强制刷新 + 重试反查新目录 id（CAS 建目录异步/缓存）
+            for attempt in range(retries):
+                items, err = self._fetch_folders(account_id, scope, family_id,
+                                                 parent_folder_id, force_refresh=True)
+                for item in items:
+                    if str(item.get("name") or "") == folder_name:
+                        return str(item.get("value") or ""), ""
+                if attempt < retries - 1:
+                    time.sleep(0.5)
+            return "", f"目录「{folder_name}」已创建但反查不到 id（可能 CAS 未及时刷新）"
+        except Exception as err:  # noqa: BLE001
+            return "", str(err)
 
     @staticmethod
     def _normalize_host(host: str) -> str:
@@ -1117,6 +1172,27 @@ class CasRestore(_PluginBase):
         """
         target_folder_id = self._cfg_str("target_folder_id")
         target_label = self._cfg_str("target_folder_name") or target_folder_id
+        # 按本地相对子目录在网盘逐级建目录（createFolder 支持 parentFolderId），
+        # 用最深层目录 id 作为 targetFolderId，实现「网盘目录跟随本地结构」。
+        try:
+            rel = path.parent.resolve().relative_to(watch_dir.resolve()).as_posix()
+        except (ValueError, OSError):
+            rel = ""
+        rel_parts = [p for p in rel.split("/") if p and p != "."] if rel else []
+        if rel_parts and target_folder_id:
+            account_id = self._cfg_str("account_id")
+            scope = self._cfg_str("scope")
+            family_id = self._cfg_str("family_id")
+            current_id = target_folder_id
+            for part in rel_parts:
+                folder_id, err = self._ensure_folder(
+                    account_id, current_id, part, scope, family_id)
+                if err:
+                    self._log(f"创建网盘子目录「{part}」失败：{err}，退回上级目录", "warning")
+                    break
+                current_id = folder_id
+                target_label = f"{target_label}/{part}"
+            target_folder_id = current_id
         # 记录页展示字段（参考媒体整理样式：短标题 / 本地路径 / 大小）
         try:
             size_bytes = path.stat().st_size if path.exists() else 0
