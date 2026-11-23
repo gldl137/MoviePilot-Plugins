@@ -174,7 +174,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.3"
+    plugin_version = "1.2.4"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -432,9 +432,26 @@ class CasRestore(_PluginBase):
                                params={"page": 1, "pageSize": 1}, timeout=10)
             if resp.status_code == 200:
                 self._log("[测试] 连接正常且 API Key 鉴权通过")
-                return {"success": True, "message": f"CAS 服务连接正常（{source}）"}
-            self._log(f"[测试] 连接异常：HTTP {resp.status_code} - {resp.text[:200]}", "warning")
-            return {"success": False, "message": f"HTTP {resp.status_code}"}
+            else:
+                self._log(f"[测试] 连接异常：HTTP {resp.status_code} - {resp.text[:200]}", "warning")
+                return {"success": False, "message": f"HTTP {resp.status_code}"}
+            # 追加验证账号 / 家庭列表接口（与配置页下拉使用相同逻辑）
+            accounts, account_err = self._fetch_accounts()
+            if account_err:
+                self._log(f"[测试] 账号列表拉取失败：{account_err}", "warning")
+                return {"success": False, "message": f"账号列表拉取失败：{account_err}"}
+            self._log(f"[测试] 账号列表正常（{len(accounts)} 个）")
+            target = self._cfg_str("account_id") or (
+                accounts[0]["value"] if accounts else "")
+            if not target:
+                return {"success": True, "message": "连接正常，但无可用账号"}
+            fams, family_err = self._fetch_families(target)
+            if family_err:
+                self._log(f"[测试] 家庭列表拉取失败（账号 {target}）：{family_err}", "warning")
+            else:
+                self._log(f"[测试] 家庭列表正常（{len(fams)} 个，账号 {target}）")
+            return {"success": True,
+                    "message": f"CAS 服务连接正常（{source}），账号 {len(accounts)} 个"}
         except Exception as err:  # noqa: BLE001
             self._log(f"[测试] 连接失败：{err}", "warning")
             return {"success": False, "message": str(err)}
@@ -529,7 +546,8 @@ class CasRestore(_PluginBase):
             session = self._new_session()
             headers = {"x-api-key": api_key} if api_key else {}
             resp = session.get(f"{host}/api/accounts", headers=headers, timeout=timeout)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                return [], f"HTTP {resp.status_code}: {resp.text[:150]}"
             data = resp.json()
             if not data.get("success"):
                 return [], str(data.get("message") or data.get("error") or "接口返回失败")
@@ -564,7 +582,8 @@ class CasRestore(_PluginBase):
             headers = {"x-api-key": api_key} if api_key else {}
             resp = session.get(f"{host}/api/accounts/{account_id}/families",
                                headers=headers, timeout=timeout)
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                return [], f"HTTP {resp.status_code}: {resp.text[:150]}"
             data = resp.json()
             if not data.get("success"):
                 return [], str(data.get("message") or data.get("error") or "接口返回失败")
@@ -578,7 +597,7 @@ class CasRestore(_PluginBase):
                 if fid:
                     items.append({"label": label, "value": fid})
             if not items:
-                return [], "该账号未获取到可用家庭"
+                return [], f"该账号未获取到可用家庭（接口原始返回：{str(data)[:150]}）"
             return items, ""
         except Exception as err:  # noqa: BLE001
             return [], str(err)
