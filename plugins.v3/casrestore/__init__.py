@@ -1,23 +1,27 @@
 """
 CAS恢复源文件（CasRestore）
 
-扫描监控目录中的 .cas 秒传文件，调用 CAS 服务的 /api/cas-restore/restore 接口，
-在网盘直接恢复源文件（秒传，不占用本地下载带宽）。
+监控目录中的 .cas 秒传文件（inotify 事件驱动，新文件写入完成即自动恢复，不轮询），
+调用 CAS 服务的 /api/cas-restore/restore 接口，在网盘直接恢复源文件。
 
-CAS 服务地址与 API Key 优先读取 CAS助手（casassistant）插件配置：
-    from app.sdk.plugins import PluginManager
-    cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
-    # cfg = {"enabled": bool, "host": str, "api_key": str}
-CAS助手 未配置时回退到本插件自身填写的 CAS 服务地址 / API Key。
+特点：
+1. CAS 服务地址 / API Key 只从 CAS助手（casassistant）插件读取，本插件不填写：
+   from app.sdk.plugins import PluginManager
+   cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
+   # cfg = {"enabled": bool, "host": str, "api_key": str}
+2. 只处理 .cas 后缀文件；inotify 不可用（非 Linux / 缺依赖）时回退 30 秒轮询兜底。
+3. 网盘目录跟随本地结构：目标文件夹路径 + 本地相对子目录（manual 模式，CAS 自动建目录），
+   恢复成功删除 .cas 后自动清空本地空目录（边界为监控目录本身，不向上越界）。
+4. 请求一次只提交一条 .cas（files 数组仅一个元素）。
 
 请求体（与 CAS 抓包一致）：
 {
     "accountId": 3,
     "scope": "family",
     "familyId": "575994414",
-    "directoryMode": "select",
-    "targetFolderId": "...",
-    "targetFolderPath": "家庭1/测试",
+    "directoryMode": "manual",
+    "targetFolderId": "",
+    "targetFolderPath": "家庭1/测试/子目录",
     "files": [{"localFileName": "xxx.cas", "content": "<cas 文件内容的 base64>"}]
 }
 """
@@ -35,6 +39,11 @@ try:  # HTTP 请求
     import requests
 except ImportError:  # 宿主通常自带 requests
     requests = None  # type: ignore
+
+try:  # Linux 目录事件监控（inotify）
+    from inotify.adapters import InotifyTrees
+except ImportError:
+    InotifyTrees = None  # type: ignore
 
 try:  # 读取 CAS助手 插件配置
     from app.sdk.plugins import PluginManager
@@ -63,11 +72,10 @@ LOG_TAG = "[CAS恢复]"
 MAX_LOG_LINES = 300
 MAX_PROCESSED = 5000
 DEFAULT_RETRY = 3
-DEFAULT_BATCH = 10
+POLL_FALLBACK_SECONDS = 30
 RESTORE_TIMEOUT = 120
 
 SCOPE_ACTIONS = {"family": "家庭空间", "personal": "个人空间"}
-DIR_MODE_ACTIONS = {"select": "按目录 ID（select）", "manual": "按目录路径（manual）"}
 
 try:  # 内网自签证书时禁用告警
     import urllib3
@@ -150,7 +158,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -160,17 +168,10 @@ class CasRestore(_PluginBase):
     _default_config = {
         "enabled": False,
         "watch_dir": "",
-        "interval_seconds": 60,
-        "batch_size": DEFAULT_BATCH,
-        "delete_cas": True,
         "account_id": "",
         "scope": "family",
         "family_id": "",
-        "directory_mode": "select",
-        "target_folder_id": "",
         "target_folder_path": "",
-        "cas_host": "",
-        "cas_api_key": "",
         "notify": True,
         "onlyonce": False,
     }
@@ -200,9 +201,9 @@ class CasRestore(_PluginBase):
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
         self._enabled = bool(self._config.get("enabled"))
-        self._log(f"初始化完成：启用={self._enabled}，"
-                  f"监控目录={self._cfg_str('watch_dir') or '未设置'}，"
-                  f"间隔={self._cfg_int('interval_seconds', 60, 10)} 秒")
+        mode = "inotify 事件监控" if InotifyTrees is not None else "轮询兜底"
+        self._log(f"初始化完成：启用={self._enabled}，监控方式={mode}，"
+                  f"监控目录={self._cfg_str('watch_dir') or '未设置'}")
         if self._enabled:
             problem = self._validate()
             if problem:
@@ -249,22 +250,18 @@ class CasRestore(_PluginBase):
         """返回 Vuetify 配置页。"""
         cfgs = [
             _alert(
-                "扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件"
-                "（秒传，不占本地带宽）。CAS 服务地址优先读取「CAS助手」插件配置，"
-                "也可在下方自行填写。恢复成功后可选删除本地 .cas 文件。"
+                "监控目录有新 .cas 文件写入完成时自动恢复（inotify 事件驱动，不轮询），"
+                "调用 CAS 服务接口直接在网盘恢复源文件。CAS 服务地址与 API Key 直接读取"
+                "「CAS助手」插件配置，本插件无需填写。网盘目录自动跟随本地子目录结构，"
+                "恢复成功后删除 .cas 并清空本地空目录。每次请求只提交一条 .cas。"
             ),
             _row(
                 _sw("enabled", "启用插件", md=12),
             ),
             _row(
                 _tf("watch_dir", "监控目录",
-                    "扫描该目录（含子目录）下的 .cas 文件；容器内绝对路径",
+                    "监控该目录（含子目录）下新增的 .cas 文件；容器内绝对路径",
                     "/downloads/tgcas", md=12),
-            ),
-            _row(
-                _tf("interval_seconds", "扫描间隔（秒）", "最小 10 秒", "60", "number", md=4),
-                _tf("batch_size", "单次请求文件数", "一批 .cas 一起提交", "10", "number", md=4),
-                _sw("delete_cas", "恢复成功后删除 .cas", "网盘恢复成功后删除本地 .cas 文件", md=4),
             ),
             _row(
                 _tf("account_id", "账号 ID", "CAS 请求体 accountId", "3", "number", md=4),
@@ -272,20 +269,13 @@ class CasRestore(_PluginBase):
                 _tf("family_id", "家庭 ID", "空间类型为家庭空间时必填", "575994414", md=4),
             ),
             _row(
-                _sel("directory_mode", "目录模式", DIR_MODE_ACTIONS, "", md=4),
-                _tf("target_folder_id", "目标文件夹 ID", "目录模式 select 时必填", "", md=4),
-                _tf("target_folder_path", "目标文件夹路径", "目录模式 manual 时必填，如 家庭1/测试",
-                    "", md=4),
-            ),
-            _row(
-                _tf("cas_host", "CAS 服务地址（可选）",
-                    "留空自动读取 CAS助手 插件配置", "http://192.168.2.6:3005", md=6),
-                _tf("cas_api_key", "CAS API Key（可选）",
-                    "留空自动读取 CAS助手 插件配置", "", "text", md=6),
+                _tf("target_folder_path", "目标文件夹路径",
+                    "网盘基路径；本地子目录会自动拼接到其后（如 家庭1/测试）",
+                    "家庭1/测试", md=12),
             ),
             _row(
                 _sw("notify", "发送通知", "有恢复成功时发送 Message 通知", md=4),
-                _sw("onlyonce", "立即运行一次", "保存后立即扫描一轮并自动复位", md=4),
+                _sw("onlyonce", "立即运行一次", "保存后立即扫描一轮存量 .cas 并自动复位", md=4),
             ),
         ]
         return [{"component": "VForm", "content": cfgs}], {**self._default_config, **self._config}
@@ -354,19 +344,15 @@ class CasRestore(_PluginBase):
         }
 
     def api_scan(self) -> Dict[str, Any]:
-        """唤醒守护线程立即扫描一轮；插件未启用时只执行一次，不常驻。"""
+        """立即扫描一轮存量 .cas（事件监控之外的手动触发，适合处理监控启动前的存量文件）。"""
         problem = self._validate()
         if problem:
             self._log(f"扫描失败：{problem}", "warning")
             return {"success": False, "message": problem}
-        if self._enabled:
-            self._ensure_worker()
-            self._trigger.set()
-            return {"success": True, "message": "已请求立即扫描，请查看日志"}
         self._stop_event.clear()
         threading.Thread(target=self._scan_once, daemon=True,
                          name="casrestore-once").start()
-        return {"success": True, "message": "插件未启用，已启动单次扫描，请查看日志"}
+        return {"success": True, "message": "已启动扫描，请查看日志"}
 
     def api_test(self) -> Dict[str, Any]:
         """测试 CAS 服务连接与鉴权，结果写入日志面板。"""
@@ -417,16 +403,11 @@ class CasRestore(_PluginBase):
             return "空间类型只能是 family / personal"
         if self._cfg_str("scope") == "family" and not self._cfg_str("family_id"):
             return "空间类型为家庭空间时需要填写家庭 ID"
-        mode = self._cfg_str("directory_mode")
-        if mode not in DIR_MODE_ACTIONS:
-            return "目录模式只能是 select / manual"
-        if mode == "select" and not self._cfg_str("target_folder_id"):
-            return "目录模式 select 需要填写目标文件夹 ID"
-        if mode == "manual" and not self._cfg_str("target_folder_path"):
-            return "目录模式 manual 需要填写目标文件夹路径"
+        if not self._cfg_str("target_folder_path"):
+            return "需要填写目标文件夹路径（网盘基路径）"
         host, _, _ = self._resolve_cas()
         if not host:
-            return "未获取到 CAS 服务地址（CAS助手 未启用且本插件未填写）"
+            return "未获取到 CAS 服务地址，请先启用并配置「CAS助手」插件"
         return None
 
     # ------------------------------------------------------------------
@@ -455,10 +436,10 @@ class CasRestore(_PluginBase):
     # CAS 服务配置（优先 CAS助手 插件，回退本插件填写）
     # ------------------------------------------------------------------
     def _resolve_cas(self) -> Tuple[str, str, str]:
-        """返回 (host, api_key, 来源说明)；host 已补全协议并去掉尾部斜杠。"""
+        """从 CAS助手 插件读取配置，返回 (host, api_key, 来源说明)；host 已规范化。"""
         host = ""
         api_key = ""
-        source = "本插件填写"
+        source = "CAS助手 插件"
         if PluginManager is not None:
             try:
                 cfg = PluginManager().run_plugin_method(
@@ -466,12 +447,8 @@ class CasRestore(_PluginBase):
                 if cfg.get("enabled") and cfg.get("host"):
                     host = str(cfg.get("host") or "").strip()
                     api_key = str(cfg.get("api_key") or "").strip()
-                    source = "CAS助手 插件"
             except Exception as err:  # noqa: BLE001
-                self._log(f"读取 CAS助手 配置失败，回退本插件填写：{err}", "warning")
-        if not host:
-            host = self._cfg_str("cas_host")
-            api_key = api_key or self._cfg_str("cas_api_key")
+                self._log(f"读取 CAS助手 配置失败：{err}", "warning")
         host = self._normalize_host(host)
         return host, api_key, source
 
@@ -509,11 +486,49 @@ class CasRestore(_PluginBase):
             self._log("守护线程已启动")
 
     def _worker_loop(self) -> None:
-        """轮询循环：按配置间隔扫描监控目录，trigger 唤醒立即扫描。"""
+        """调度入口：优先 inotify 事件驱动（新 .cas 写入完成即恢复），不可用时回退轮询。"""
+        if InotifyTrees is not None:
+            try:
+                self._inotify_loop()
+                return
+            except Exception as err:  # noqa: BLE001
+                self._log(f"inotify 监控异常，回退轮询：{err}", "warning")
+        else:
+            self._log("当前环境缺少 inotify（非 Linux 或未安装依赖），回退轮询监控", "warning")
+        self._poll_loop()
+
+    def _inotify_loop(self) -> None:
+        """inotify 事件循环：只响应 IN_CLOSE_WRITE / IN_MOVED_TO（写入/移入完成）。"""
+        import os
+
+        watch_dir = self._cfg_str("watch_dir")
+        trees = InotifyTrees([watch_dir])
+        self._log(f"已启动 inotify 目录监控（事件驱动）：{watch_dir}")
+        for event in trees.event_gen():
+            if self._stop_event.is_set() or self._thread is not threading.current_thread():
+                break
+            if event is None:
+                continue
+            (_, type_names, path, filename) = event
+            types = set(type_names)
+            if "IN_CLOSE_WRITE" not in types and "IN_MOVED_TO" not in types:
+                continue
+            if not filename:
+                continue
+            full = os.path.join(path, filename)
+            if not full.lower().endswith(".cas"):
+                continue
+            try:
+                self._process_file(Path(full))
+            except Exception as err:  # noqa: BLE001
+                self._log(f"处理 {filename} 异常：{err}", "error")
+        self._log("inotify 监控已退出")
+
+    def _poll_loop(self) -> None:
+        """回退轮询循环（inotify 不可用时）：固定 30 秒扫描一轮存量 .cas。"""
         current = threading.current_thread()
         while not self._stop_event.is_set() and self._thread is current:
-            interval = self._cfg_int("interval_seconds", 60, 10)
-            self._trigger.wait(timeout=interval)
+            self._trigger.wait(timeout=POLL_FALLBACK_SECONDS)
             self._trigger.clear()
             if self._stop_event.is_set():
                 break
@@ -550,108 +565,131 @@ class CasRestore(_PluginBase):
         except OSError:
             return str(path)
 
-    def _scan_once(self) -> bool:
-        """执行一轮扫描：收集 .cas 文件 → 分批调用恢复接口 → 记录结果。"""
+    def _scan_once(self) -> int:
+        """扫描存量 .cas 并逐个恢复（手动触发 / 轮询兜底用）。返回成功数。"""
         if not self._scan_lock.acquire(blocking=False):
             self._log("上一轮扫描尚未结束，跳过本轮", "warning")
+            return 0
+        self._scanning = True
+        ok = 0
+        try:
+            problem = self._validate()
+            if problem:
+                self._log(f"跳过扫描：{problem}", "warning")
+                return 0
+            watch_dir = Path(self._cfg_str("watch_dir"))
+            if not watch_dir.is_dir():
+                self._log(f"监控目录不存在：{watch_dir}", "warning")
+                return 0
+            todo = [p for p in sorted(watch_dir.rglob("*"))
+                    if p.is_file() and p.suffix.lower() == ".cas"]
+            if not todo:
+                self._log("未发现待处理 .cas 文件")
+                return 0
+            self._log(f"发现 {len(todo)} 个 .cas 文件，开始逐个恢复")
+            for path in todo:
+                if self._stop_event.is_set():
+                    break
+                try:
+                    if self._process_file(path):
+                        ok += 1
+                except Exception as err:  # noqa: BLE001
+                    self._log(f"处理 {path.name} 异常：{err}", "error")
+            summary = f"扫描完成：发现 {len(todo)} 个，恢复成功 {ok} 个"
+            self._last_scan = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self._last_result = summary
+            self._log(summary)
+            if ok:
+                self._notify(f"{self.plugin_name} 恢复完成", summary)
+            return ok
+        finally:
+            self._scanning = False
+            self._scan_lock.release()
+
+    def _process_file(self, path: Path) -> bool:
+        """处理单个 .cas：恢复 → 删除 .cas → 清空本地空目录。返回是否成功。"""
+        if not self._scan_lock.acquire(blocking=False):
             return False
         self._scanning = True
         try:
             problem = self._validate()
             if problem:
-                self._log(f"跳过扫描：{problem}", "warning")
+                self._log(f"跳过 {path.name}：{problem}", "warning")
                 return False
-            host, api_key, source = self._resolve_cas()
             watch_dir = Path(self._cfg_str("watch_dir"))
-            if not watch_dir.is_dir():
-                self._log(f"监控目录不存在：{watch_dir}", "warning")
-                return False
+            key = self._file_key(path)
             processed: Dict[str, Any] = self.get_data("processed") or {}
             if not isinstance(processed, dict):
                 processed = {}
+            if key in processed:
+                return False
             failures: Dict[str, int] = self.get_data("failures") or {}
             if not isinstance(failures, dict):
                 failures = {}
-
-            # 收集待处理文件：跳过已处理；同轮内按文件名去重（接口按 localFileName 回结果）
-            todo: List[Path] = []
-            seen_names: Dict[str, Path] = {}
-            renamed = 0
-            for path in sorted(watch_dir.rglob("*")):
-                if not path.is_file() or path.suffix.lower() != ".cas":
-                    continue
-                key = self._file_key(path)
-                if key in processed:
-                    continue
-                if int(failures.get(key, 0)) >= DEFAULT_RETRY:
-                    continue
-                if path.name.lower() in seen_names:
-                    renamed += 1
-                    continue
-                seen_names[path.name.lower()] = path
-                todo.append(path)
-            if renamed:
-                self._log(f"本轮跳过 {renamed} 个同名 .cas（接口按文件名回结果，下轮再试）")
-            if not todo:
+            if int(failures.get(key, 0)) >= DEFAULT_RETRY:
                 return False
 
+            host, api_key, _ = self._resolve_cas()
+            success, reason = self._restore_one(host, api_key, path, watch_dir)
             self._last_scan = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            batch = self._cfg_int("batch_size", DEFAULT_BATCH, 1)
-            ok = 0
-            failed = 0
-            for start in range(0, len(todo), batch):
-                if self._stop_event.is_set():
-                    break
-                chunk = todo[start:start + batch]
-                if self._restore_batch(host, api_key, chunk, processed, failures):
-                    ok += len(chunk)
-                else:
-                    failed += len(chunk)
-            summary = (f"本轮发现 {len(todo)} 个 .cas，恢复成功 {ok}，失败 {failed}"
-                       f"（CAS：{source}）")
-            self._last_result = summary
-            self._log(summary)
-            trimmed = dict(list(processed.items())[-MAX_PROCESSED:])
-            self.save_data("processed", trimmed)
-            self.save_data("failures", dict(list(failures.items())[-1000:]))
-            if ok:
-                self._notify(f"{self.plugin_name} 恢复完成", summary)
-            return ok > 0
+            if success:
+                processed[key] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                failures.pop(key, None)
+                self.save_data("processed", dict(list(processed.items())[-MAX_PROCESSED:]))
+                self.save_data("failures", failures)
+                self._last_result = f"恢复成功：{path.name}"
+                if self._cfg_bool("notify", True):
+                    self._notify(
+                        f"{self.plugin_name} 恢复成功",
+                        f"{path.name} 已恢复到网盘：{self._cfg_str('target_folder_path')}",
+                    )
+                return True
+            count = int(failures.get(key, 0)) + 1
+            failures[key] = count
+            self.save_data("failures", failures)
+            self._last_result = f"恢复失败：{path.name}"
+            if count >= DEFAULT_RETRY:
+                processed[key] = f"失败放弃：{reason}"
+                self.save_data("processed", dict(list(processed.items())[-MAX_PROCESSED:]))
+                self._log(f"恢复失败 {path.name}（{count}/{DEFAULT_RETRY} 次，已放弃）：{reason}",
+                          "error")
+            else:
+                self._log(f"恢复失败 {path.name}（{count}/{DEFAULT_RETRY} 次）：{reason}",
+                          "warning")
+            return False
         finally:
             self._scanning = False
             self._scan_lock.release()
 
-    def _restore_batch(self, host: str, api_key: str, chunk: List[Path],
-                       processed: Dict[str, Any], failures: Dict[str, int]) -> bool:
+    def _restore_one(self, host: str, api_key: str, path: Path,
+                     watch_dir: Path) -> Tuple[bool, str]:
         """
-        调用 /api/cas-restore/restore 恢复一批 .cas 文件。
+        调用 /api/cas-restore/restore 恢复单个 .cas（一次一条）。
 
-        返回 True 表示本批全部成功；按文件粒度回写 processed / failures。
+        网盘目录 = 目标基路径 + 本地相对子目录（manual 模式，CAS 自动创建缺失目录）。
+        返回 (是否成功, 失败原因)。
         """
-        mode = self._cfg_str("directory_mode")
+        try:
+            rel = path.parent.resolve().relative_to(watch_dir.resolve()).as_posix()
+        except (ValueError, OSError):
+            rel = ""
+        base = self._cfg_str("target_folder_path").strip().strip("/")
+        target_path = f"{base}/{rel}" if (base and rel) else (base or rel)
+        try:
+            content = base64.b64encode(path.read_bytes()).decode("ascii")
+        except OSError as err:
+            return False, f"读取失败：{err}"
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
             "scope": self._cfg_str("scope"),
-            "directoryMode": mode,
-            "targetFolderId": self._cfg_str("target_folder_id"),
-            "targetFolderPath": self._cfg_str("target_folder_path"),
-            "files": [],
+            "directoryMode": "manual",
+            "targetFolderId": "",
+            "targetFolderPath": target_path,
+            "files": [{"localFileName": path.name, "content": content}],
         }
         if self._cfg_str("scope") == "family":
             payload["familyId"] = self._cfg_str("family_id")
-        for path in chunk:
-            try:
-                content = base64.b64encode(path.read_bytes()).decode("ascii")
-            except OSError as err:
-                self._log(f"读取失败 {path.name}：{err}", "error")
-                failures[self._file_key(path)] = DEFAULT_RETRY  # 直接放弃，避免死循环
-                continue
-            payload["files"].append({"localFileName": path.name, "content": content})
-        if not payload["files"]:
-            return False
-
-        names = "、".join(p.name for p in chunk[:3]) + ("…" if len(chunk) > 3 else "")
-        self._log(f"提交恢复 {len(chunk)} 个：{names}")
+        self._log(f"提交恢复：{path.name} → {target_path}")
         try:
             session = self._new_session()
             headers = {"x-api-key": api_key} if api_key else {}
@@ -660,48 +698,37 @@ class CasRestore(_PluginBase):
             resp.raise_for_status()
             data = resp.json()
         except Exception as err:  # noqa: BLE001
-            self._log(f"恢复请求失败（{names}）：{err}", "error")
-            for path in chunk:
-                key = self._file_key(path)
-                failures[key] = int(failures.get(key, 0)) + 1
-            return False
-
+            return False, str(err)
         if not data.get("success"):
             message = str((data.get("data") or {}).get("message")
                           or data.get("message") or data)
-            self._log(f"恢复接口返回失败（{names}）：{message}", "error")
-            for path in chunk:
-                key = self._file_key(path)
-                failures[key] = int(failures.get(key, 0)) + 1
-            return False
-
+            return False, message
         rdata = data.get("data") or {}
-        results = {str(r.get("localFileName") or ""): r
-                   for r in (rdata.get("results") or []) if isinstance(r, dict)}
-        all_ok = True
-        for path in chunk:
-            key = self._file_key(path)
-            result = results.get(path.name) or {}
-            if result.get("success"):
-                processed[key] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                failures.pop(key, None)
-                self._log(f"恢复成功：{path.name} → {result.get('fileName') or path.stem}"
-                          f"（{result.get('mode') or ''}）")
-                if self._cfg_bool("delete_cas", True):
-                    try:
-                        path.unlink()
-                        self._log(f"已删除 {path.name}")
-                    except OSError as err:
-                        self._log(f"删除 .cas 失败 {path.name}：{err}", "warning")
-            else:
-                all_ok = False
-                count = int(failures.get(key, 0)) + 1
-                failures[key] = count
-                reason = str(result.get("message") or "未知原因")
-                if count >= DEFAULT_RETRY:
-                    self._log(f"恢复失败 {path.name}（第 {count} 次，已放弃）：{reason}", "error")
-                    processed[key] = f"失败放弃：{reason}"
-                else:
-                    self._log(f"恢复失败 {path.name}（第 {count}/{DEFAULT_RETRY} 次）：{reason}",
-                              "warning")
-        return all_ok
+        results = [r for r in (rdata.get("results") or []) if isinstance(r, dict)]
+        result = results[0] if results else {}
+        if not result.get("success"):
+            return False, str(result.get("message") or "未知原因")
+        self._log(f"恢复成功：{path.name} → {result.get('fileName') or path.stem}"
+                  f"（{result.get('mode') or ''}），网盘目录 {target_path}")
+        # 删除本地 .cas 并清空空目录（边界为监控目录本身，不向上越界）
+        try:
+            path.unlink()
+        except OSError as err:
+            self._log(f"删除 .cas 失败 {path.name}：{err}", "warning")
+        self._cleanup_empty_dirs(path.parent, watch_dir)
+        return True, ""
+
+    def _cleanup_empty_dirs(self, start: Path, watch_dir: Path) -> None:
+        """删除 start 到监控目录之间的空目录（不删监控目录本身，不向上越界）。"""
+        try:
+            watch = watch_dir.resolve()
+            current = start.resolve()
+        except OSError:
+            return
+        while current != watch and watch in current.parents:
+            try:
+                current.rmdir()  # 仅空目录能删除，非空即停止
+                self._log(f"已清空本地空目录：{current}")
+            except OSError:
+                return
+            current = current.parent
