@@ -621,7 +621,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.41"
+    plugin_version = "1.42"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -642,6 +642,12 @@ class CasFileExtender(_PluginBase):
         _upload_fallback_enabled = self._enabled and self._upload_fallback
         if not self._enabled:
             return
+        # 启动横幅（INFO）：让日志页能直接确认当前加载的版本与匹配策略，
+        # 避免「已更新但仍是旧代码」难以判断。平时只此一条，不刷屏。
+        logger.info(
+            f"CAS视频扩展：v{self.plugin_version} 已加载（上传 .cas 到 OpenList 后，"
+            "按目标文件名匹配网盘真实产出判定成败）"
+        )
         # 启用时刷新各处扩展名缓存（.cas 识别是全局行为，但受启用开关控制）
         _inject_media_ext()
         _patch_transfer_chain()
