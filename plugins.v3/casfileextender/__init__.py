@@ -370,8 +370,15 @@ def _list_openlist_dir(storage_oper: Any, parent: Path, verbose: bool = True) ->
     return entries
 
 
+def season_episode_of(text: Any) -> Optional[str]:
+    """从文件名提取季集号 SxxExx -> 's01e06'（忽略大小写/前导零）。模块级供各处复用。"""
+    m = re.search(r"[sS](\d{1,2})[eE](\d{2,4})", str(text or ""))
+    return f"s{int(m.group(1)):02d}e{int(m.group(2)):02d}" if m else None
+
+
 def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
                      real_name: Optional[str] = None,
+                     extra_season_episode: Optional[str] = None,
                      wait: bool = False, wait_rounds: int = 12,
                      wait_interval: float = 0.7) -> Optional[Any]:
     """
@@ -385,10 +392,7 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
     base = str(basename or "").strip()
     real = str(real_name or "").strip()
 
-    def season_episode(text: str) -> Optional[str]:
-        """提取 SxxExx（忽略大小写/分隔符），如 S01E02 -> 's01e02'。"""
-        m = re.search(r"[sS](\d{1,2})[eE](\d{2,4})", str(text or ""))
-        return f"s{int(m.group(1)):02d}e{int(m.group(2)):02d}" if m else None
+    season_episode = season_episode_of
 
     def is_video_output(name: str) -> bool:
         return bool(name) and not name.lower().endswith(f".{DEFAULT_EXT}") \
@@ -410,7 +414,9 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
         # 场景：整理重命名后目标是中文名，但某些上传仍用英文源文件名
         # （One.of.a.Kind...S01E02... vs 独一无二的浪漫 - S01E02），
         # 两者只有季集号相同。必须「唯一命中」才采纳，避免同目录多集时认错。
-        wanted_se = season_episode(real) or season_episode(base)
+        # 季集号来源优先级：显式传入的源名季集号 > 目标名 > basename。
+        # 中间态英文名那次 real/base 都是英文，靠显式源名季集号兜底命中中文产出。
+        wanted_se = season_episode(extra_season_episode) or season_episode(real) or season_episode(base)
         if wanted_se:
             hits = [
                 entry for entry in entries
@@ -432,7 +438,8 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
     # 每次查询打一条匹配参数诊断（只一次，不刷屏），用于定位中英文名匹配问题
     logger.debug(
         f"CAS视频扩展：准备查询产出 real={real!r} base={base!r} "
-        f"季集号={season_episode(real) or season_episode(base)!r}"
+        f"extra_se={extra_season_episode!r} 季集号="
+        f"{season_episode(extra_season_episode) or season_episode(real) or season_episode(base)!r}"
     )
     rounds = wait_rounds if wait else 1
     # 上传刚返回时 CAS 可能还没消费 .cas 生成产出，先给一点缓冲再开始查，
@@ -522,7 +529,13 @@ def _patch_alist_upload() -> None:
         # 唯一判据（二值）：查询 OpenList 目标目录里 CAS 实际产出的视频（短轮询等异步恢复）。
         # 查到 -> 上传成功，用真实文件 size/name 合成结果；
         # 查不到 -> 上传失败，返回 None（宿主据此判定失败，不做任何伪造）。
-        output = _find_cas_output(self, target_path, basename, real_name=real_name, wait=True)
+        # 显式传入源文件名的季集号：中间态英文名那次 real/base 都是英文，
+        # 靠源名季集号兜底命中网盘中文产出（这是之前季集号兜底没生效的根因）。
+        src_se = season_episode_of(src_name)
+        output = _find_cas_output(
+            self, target_path, basename, real_name=real_name,
+            extra_season_episode=src_se, wait=True,
+        )
         if output is None:
             # 最后兜底：用本地源文件名再查一次（源文件名含 SxxExx，能与网盘中文产出
             # 按季集号唯一匹配）。覆盖「MP 中间态目标名不匹配」导致的误判失败。
@@ -680,7 +693,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.46"
+    plugin_version = "1.47"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
