@@ -31,6 +31,8 @@ const familyHint = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const clearing = ref(false)
+const saveMessage = ref('')
+const saveError = ref(false)
 
 async function clearRun() {
   clearing.value = true
@@ -87,15 +89,23 @@ async function loadFamilies() {
 async function save() {
   if (saving.value) return
   saving.value = true
+  saveError.value = false
+  saveMessage.value = ''
   try {
-    // 直接调用宿主标准配置接口落盘：详情页（Page 入口）下主应用不监听 save 事件，
-    // 仅 emit('save') 会导致配置丢失；这里统一 PUT，同时保留 emit 供设置弹窗收尾。
+    const payload = { ...cfg.value }
     try {
-      await props.api.put(`plugin/${props.pluginId}`, cfg.value)
+      if (typeof props.api.put === 'function') {
+        await props.api.put(`plugin/${props.pluginId}`, payload)
+      } else {
+        await props.api.post(`plugin/${props.pluginId}/save_config`, { config: payload })
+      }
+      saveMessage.value = '配置已保存'
+      emit('save', payload)
     } catch (e) {
       console.error('CasRestore save config failed', e)
+      saveError.value = true
+      saveMessage.value = '保存失败：' + (e && (e.message || (e.response && e.response.data && e.response.data.detail)) || e)
     }
-    emit('save', cfg.value)
   } finally {
     setTimeout(() => {
       saving.value = false
@@ -225,6 +235,9 @@ onMounted(async () => {
         </v-row>
       </v-card-text>
       <v-card-actions>
+        <span v-if="saveMessage" class="text-body-2" :class="saveError ? 'text-error' : 'text-success'">
+          {{ saveMessage }}
+        </span>
         <v-spacer />
         <v-btn color="primary" :loading="saving" @click="save">保存配置</v-btn>
       </v-card-actions>

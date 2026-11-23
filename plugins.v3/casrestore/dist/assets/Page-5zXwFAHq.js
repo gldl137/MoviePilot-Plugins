@@ -1,5 +1,5 @@
-import { _ as __mf_12, o as __mf_5 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-NkxU9if2.js';
-import _sfc_main$1 from './Config-DVxNFZNI.js';
+import { _ as __mf_13, o as __mf_6 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
+import _sfc_main$1 from './Config-aIOuv_Wl.js';
 
 /**
  * 插件详情入口（宿主点击插件卡片时加载 ./Page 组件）。
@@ -20,7 +20,7 @@ const _sfc_main = {
 const props = __props;
 
 return (_ctx, _cache) => {
-  return (__mf_12(), __mf_5(_sfc_main$1, {
+  return (__mf_13(), __mf_6(_sfc_main$1, {
     api: props.api,
     "plugin-id": props.pluginId
   }, null, 8, ["api", "plugin-id"]))

@@ -93,24 +93,26 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
     let __mf_14;
     let __mf_15;
     let __mf_16;
+    let __mf_17;
     const __mfApplyHostProvidedExports = (exportModule) => {
       __mf_0 = exportModule["createApp"];
       __mf_1 = exportModule["ref"];
-      __mf_2 = exportModule["toDisplayString"];
-      __mf_3 = exportModule["Fragment"];
-      __mf_4 = exportModule["computed"];
-      __mf_5 = exportModule["createBlock"];
-      __mf_6 = exportModule["createCommentVNode"];
-      __mf_7 = exportModule["createElementBlock"];
-      __mf_8 = exportModule["createElementVNode"];
-      __mf_9 = exportModule["createTextVNode"];
-      __mf_10 = exportModule["createVNode"];
-      __mf_11 = exportModule["onMounted"];
-      __mf_12 = exportModule["openBlock"];
-      __mf_13 = exportModule["renderList"];
-      __mf_14 = exportModule["resolveComponent"];
-      __mf_15 = exportModule["watch"];
-      __mf_16 = exportModule["withCtx"];
+      __mf_2 = exportModule["normalizeClass"];
+      __mf_3 = exportModule["toDisplayString"];
+      __mf_4 = exportModule["Fragment"];
+      __mf_5 = exportModule["computed"];
+      __mf_6 = exportModule["createBlock"];
+      __mf_7 = exportModule["createCommentVNode"];
+      __mf_8 = exportModule["createElementBlock"];
+      __mf_9 = exportModule["createElementVNode"];
+      __mf_10 = exportModule["createTextVNode"];
+      __mf_11 = exportModule["createVNode"];
+      __mf_12 = exportModule["onMounted"];
+      __mf_13 = exportModule["openBlock"];
+      __mf_14 = exportModule["renderList"];
+      __mf_15 = exportModule["resolveComponent"];
+      __mf_16 = exportModule["watch"];
+      __mf_17 = exportModule["withCtx"];
       exportModule.default ?? exportModule;
     };
     let exportModule = __mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:vue@3.5.46","aliases":["vue@3.5.46"]});
@@ -138,4 +140,4 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
       __mfApplyHostProvidedExports(exportModule);
     }
 
-export { __mf_12 as _, __mf_7 as a, __mf_0 as b, __mf_1 as c, __mf_4 as d, __mf_11 as e, __mf_14 as f, __mf_8 as g, __mf_9 as h, __mf_2 as i, __mf_3 as j, __mf_6 as k, __mf_10 as l, __mf_16 as m, __mf_13 as n, __mf_5 as o, __mf_15 as p };
+export { __mf_13 as _, __mf_8 as a, __mf_0 as b, __mf_1 as c, __mf_5 as d, __mf_12 as e, __mf_15 as f, __mf_9 as g, __mf_10 as h, __mf_3 as i, __mf_4 as j, __mf_7 as k, __mf_11 as l, __mf_17 as m, __mf_14 as n, __mf_6 as o, __mf_16 as p, __mf_2 as q };
