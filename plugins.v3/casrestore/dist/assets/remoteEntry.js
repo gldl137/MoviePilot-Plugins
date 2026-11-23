@@ -1,4 +1,4 @@
-const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/AppPage-QgCj4KW1.css"])))=>i.map(i=>d[i]);
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/AppPage-3uIEvPOX.css"])))=>i.map(i=>d[i]);
 import { _ as __vitePreload } from './vite-preload-helper-BelkbqnE.js';
 import { i as init$1 } from './index-pSqlufH5.js';
 import { s as share } from './helpers-_Ccnm3rP.js';
@@ -77,7 +77,7 @@ const cssAssetMap = {};
           await Promise.all([]);
           const importModule = await loadExposedModule(
             "./AppPage",
-            () => __vitePreload(() => import('./AppPage-CA0QXzsJ.js'),true?__vite__mapDeps([0]):void 0)
+            () => __vitePreload(() => import('./AppPage-CyZucAm9.js'),true?__vite__mapDeps([0]):void 0)
           );
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
           if (dependencyPending && typeof dependencyPending.then === "function") {

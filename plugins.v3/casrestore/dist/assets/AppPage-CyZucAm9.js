@@ -247,7 +247,7 @@ return (_ctx, _cache) => {
                       class: "record-path text-truncate",
                       title: r.local_path
                     }, [
-                      _cache[11] || (_cache[11] = __mf_9("span", { class: "path-tag" }, "本地", -1)),
+                      _cache[11] || (_cache[11] = __mf_9("span", { class: "path-tag" }, "监控目录", -1)),
                       __mf_10(__mf_3(r.local_path), 1)
                     ], 8, _hoisted_10))
                   : __mf_7("", true),
@@ -257,7 +257,7 @@ return (_ctx, _cache) => {
                       class: "record-path text-truncate",
                       title: rowNetPath(r)
                     }, [
-                      _cache[12] || (_cache[12] = __mf_9("span", { class: "path-tag path-tag-net" }, "网盘", -1)),
+                      _cache[12] || (_cache[12] = __mf_9("span", { class: "path-tag path-tag-net" }, "网盘目录", -1)),
                       __mf_10(__mf_3(rowNetPath(r)), 1)
                     ], 8, _hoisted_11))
                   : __mf_7("", true),
@@ -328,6 +328,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-0e998aa7"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-e91fecba"]]);
 
 export { AppPage as default };
