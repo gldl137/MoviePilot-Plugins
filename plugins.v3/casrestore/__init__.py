@@ -191,7 +191,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -362,13 +362,32 @@ class CasRestore(_PluginBase):
     # 详情页
     # ------------------------------------------------------------------
     def get_page(self) -> List[dict]:
-        """展示运行状态与最近日志。"""
-        with self._log_lock:
-            lines = list(self._logs)[-40:]
-        log_content = [
-            {"component": "pre", "props": {"class": "text-caption", "style": "white-space:pre-wrap"},
-             "text": "\n".join(lines) or "暂无日志"}
-        ]
+        """展示运行状态与恢复记录列表。"""
+        records = self.get_data("restore_records") or []
+        if not isinstance(records, list):
+            records = []
+        rows: List[Dict[str, Any]] = []
+        for it in records[:100]:
+            status = str(it.get("status") or "")
+            color = "success" if status == "成功" else "error"
+            rows.append({
+                "component": "tr",
+                "content": [
+                    {"component": "td",
+                     "props": {"width": "170px", "class": "text-no-wrap"},
+                     "text": str(it.get("time", ""))},
+                    {"component": "td", "text": str(it.get("filename", ""))},
+                    {"component": "td", "text": str(it.get("target", ""))},
+                    {"component": "td", "props": {"width": "90px"}, "content": [
+                        {"component": "VChip", "props": {"size": "small", "color": color},
+                         "text": status or "未知"}]},
+                    {"component": "td", "text": str(it.get("message", ""))},
+                ],
+            })
+        if not rows:
+            rows = [{"component": "tr", "content": [
+                {"component": "td", "props": {"colspan": 5, "class": "text-center"},
+                 "text": "暂无恢复记录（监控目录出现 .cas 后自动恢复，会记录在此）"}]}]
         return [
             {"component": "VRow", "content": [
                 {"component": "VCol", "props": {"cols": 12}, "content": [
@@ -387,8 +406,22 @@ class CasRestore(_PluginBase):
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VCard", "props": {"variant": "outlined"}, "content": [
                         {"component": "VCardTitle", "props": {"class": "text-subtitle-1"},
-                         "text": "运行日志"},
-                        {"component": "VCardText", "content": log_content},
+                         "text": f"恢复记录（共 {len(records)} 条，最多保留 200 条，最新在上）"},
+                        {"component": "VTable", "props": {"density": "compact"}, "content": [
+                            {"component": "thead", "content": [
+                                {"component": "tr", "content": [
+                                    {"component": "th",
+                                     "props": {"width": "170px", "class": "text-no-wrap"},
+                                     "text": "时间"},
+                                    {"component": "th", "text": "本地文件"},
+                                    {"component": "th", "text": "恢复到网盘"},
+                                    {"component": "th", "props": {"width": "90px"},
+                                     "text": "状态"},
+                                    {"component": "th", "text": "说明"},
+                                ]},
+                            ]},
+                            {"component": "tbody", "content": rows},
+                        ]},
                     ]},
                 ]},
             ]},
@@ -845,6 +878,7 @@ class CasRestore(_PluginBase):
         try:
             content = base64.b64encode(path.read_bytes()).decode("ascii")
         except OSError as err:
+            self._append_record(path.name, target_path, "失败", f"读取失败：{err}")
             return False, f"读取失败：{err}"
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
@@ -865,18 +899,26 @@ class CasRestore(_PluginBase):
             resp.raise_for_status()
             data = resp.json()
         except Exception as err:  # noqa: BLE001
+            self._append_record(path.name, target_path, "失败", f"请求失败：{err}")
             return False, str(err)
         if not data.get("success"):
             message = str((data.get("data") or {}).get("message")
                           or data.get("message") or data)
+            self._append_record(path.name, target_path, "失败", f"接口返回失败：{message}")
             return False, message
         rdata = data.get("data") or {}
         results = [r for r in (rdata.get("results") or []) if isinstance(r, dict)]
         result = results[0] if results else {}
         if not result.get("success"):
-            return False, str(result.get("message") or "未知原因")
+            reason = str(result.get("message") or "未知原因")
+            self._append_record(path.name, target_path, "失败", reason)
+            return False, reason
+        mode_text = str(result.get("mode") or "")
         self._log(f"恢复成功：{path.name} → {result.get('fileName') or path.stem}"
-                  f"（{result.get('mode') or ''}），网盘目录 {target_path}")
+                  f"（{mode_text}），网盘目录 {target_path}")
+        self._append_record(path.name, target_path, "成功",
+                            f"恢复为 {result.get('fileName') or path.stem}"
+                            + (f"（模式 {mode_text}）" if mode_text else ""))
         # 删除本地 .cas 并清空空目录（边界为监控目录本身，不向上越界）
         try:
             path.unlink()
@@ -884,6 +926,22 @@ class CasRestore(_PluginBase):
             self._log(f"删除 .cas 失败 {path.name}：{err}", "warning")
         self._cleanup_empty_dirs(path.parent, watch_dir)
         return True, ""
+
+    def _append_record(self, filename: str, target: str,
+                       status: str, message: str) -> None:
+        """追加一条恢复记录（详情页列表，最新在前，最多 200 条）。"""
+        try:
+            records = self.get_data("restore_records") or []
+            if not isinstance(records, list):
+                records = []
+            records.insert(0, {
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "filename": filename, "target": target,
+                "status": status, "message": message,
+            })
+            self.save_data("restore_records", records[:200])
+        except Exception as err:  # noqa: BLE001
+            self._log(f"写入恢复记录失败：{err}", "warning")
 
     def _cleanup_empty_dirs(self, start: Path, watch_dir: Path) -> None:
         """删除 start 到监控目录之间的空目录（不删监控目录本身，不向上越界）。"""
