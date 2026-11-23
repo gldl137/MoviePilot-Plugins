@@ -85,9 +85,9 @@ def _inject_media_ext() -> bool:
         return False
     if ext not in exts:
         exts.append(ext)
-        logger.info(f"CAS视频扩展：已将 {ext} 注入视频白名单 RMT_MEDIAEXT")
+        logger.debug(f"CAS视频扩展：已将 {ext} 注入视频白名单 RMT_MEDIAEXT")
     else:
-        logger.info(f"CAS视频扩展：视频白名单已含 {ext}")
+        logger.debug(f"CAS视频扩展：视频白名单已含 {ext}")
     return True
 
 
@@ -110,9 +110,9 @@ def _patch_transfer_chain() -> None:
                 setattr(tc, attr, cur)
                 changed = True
         if changed:
-            logger.info("CAS视频扩展：已将 .cas 注入 TransferChain 媒体扩展名缓存")
+            logger.debug("CAS视频扩展：已将 .cas 注入 TransferChain 媒体扩展名缓存")
         else:
-            logger.info("CAS视频扩展：TransferChain 媒体扩展名缓存已含 .cas")
+            logger.debug("CAS视频扩展：TransferChain 媒体扩展名缓存已含 .cas")
     except Exception as err:
         logger.warning(f"CAS视频扩展：刷新 TransferChain 失败：{err}")
 
@@ -136,9 +136,9 @@ def _refresh_native_monitor() -> bool:
         if ext not in exts:
             exts.append(ext)
             dispatcher.all_exts = exts
-            logger.info("CAS视频扩展：已将 .cas 注入目录监控分发器扩展名")
+            logger.debug("CAS视频扩展：已将 .cas 注入目录监控分发器扩展名")
         else:
-            logger.info("CAS视频扩展：目录监控分发器扩展名已含 .cas")
+            logger.debug("CAS视频扩展：目录监控分发器扩展名已含 .cas")
         return True
     except Exception as err:
         logger.warning(f"CAS视频扩展：刷新分发器失败：{err}")
@@ -296,6 +296,28 @@ _CAS_OUTPUT_PROBE_EXTS = (
 )
 
 
+def _is_openlist_storage(storage_oper: Any) -> bool:
+    """
+    仅当存储操作目标是 OpenList/Alist 网盘时返回 True。
+
+    查询 OpenList 目录的两个前提之一：上传目标必须是网盘。本地存储（Local）等
+    其它实例一律返回 False，本地 .cas 传送不会触发任何网盘查询。
+    宿主 Alist 类走的就是 OpenList 兼容接口，用 isinstance 精确判断；导入失败时
+    退回按 schema.value 判断以兼容类路径变更。
+    """
+    try:
+        from app.modules.filemanager.storages.alist import Alist
+        return isinstance(storage_oper, Alist)
+    except Exception:
+        pass
+    try:
+        schema = getattr(type(storage_oper), "schema", None)
+        value = str(getattr(schema, "value", "") or "").lower()
+        return value in ("alist", "openlist")
+    except Exception:
+        return False
+
+
 def _list_openlist_dir(storage_oper: Any, parent: Path, verbose: bool = True) -> List[Any]:
     """
     实际查询 OpenList 目录内容，返回文件项列表；verbose=True 时把查到的真实内容与格式打到日志。
@@ -420,9 +442,13 @@ def _patch_alist_upload() -> None:
         target_dir = args[0] if len(args) > 0 else kwargs.get("fileitem")
         path = args[1] if len(args) > 1 else kwargs.get("path")
         new_name = args[2] if len(args) > 2 else kwargs.get("new_name")
+        # 查询 OpenList 的两个前提必须同时满足：① 上传的是 .cas 文件；② 目标是 OpenList 网盘。
+        # 本地之间传送 .cas、或非 .cas 文件的上传，一律不查（直接返回原生结果）。
+        if not _upload_fallback_enabled:
+            return result
         if not path or not str(path).lower().endswith(f".{DEFAULT_EXT}"):
             return result
-        if not _upload_fallback_enabled:
+        if not _is_openlist_storage(self):
             return result
 
         src_name = Path(str(path)).name
@@ -483,9 +509,8 @@ def _patch_alist_upload() -> None:
                 )
             # 保留 pending：delete_move_source 核对仍以 frozen 的 .cas 路径查询，
             # 需靠 get_item_strict 兜底返回一致 size 的合成项（核对只看 size/type/fileid）。
-            logger.info(
-                f"CAS视频扩展：已在 OpenList 查到 CAS 产出视频 {out_name}，"
-                f"上传结果已替换为真实文件（{out_size} bytes），整理记录将显示真实视频"
+            logger.debug(
+                f"CAS视频扩展：上传结果已替换为 OpenList 实际产出 {out_name}（{out_size} bytes）"
             )
             return new_item
         except Exception as err:
@@ -497,9 +522,12 @@ def _patch_alist_upload() -> None:
         if result is not None or not _upload_fallback_enabled or path is None:
             return result
 
-        # 只处理 .cas 目标路径，且宿主明确报不存在（None）
+        # 与 upload 一致的双条件：仅 OpenList 网盘 + .cas 路径才做兜底，
+        # 本地严格查询、非 .cas 路径一律交回原生结果。
         path_str = str(path)
         if not path_str.lower().endswith(f".{DEFAULT_EXT}"):
+            return result
+        if not _is_openlist_storage(self):
             return result
         pending = _get_cas_pending(path)
         # 关键：只对本插件 upload 过并登记的 .cas 路径兜底。
@@ -564,9 +592,8 @@ def _patch_alist_upload() -> None:
                 return None
         # 核对已收口，主动清理登记，避免同一路径后续整理读到旧 size
         _forget_cas_target(path)
-        logger.info(
-            f"CAS视频扩展：{path_str} 已被 CAS 消费，凭同目录产出视频 "
-            f"{real_name} 合成文件项通过整理核对"
+        logger.debug(
+            f"CAS视频扩展：{path_str} 核对通过（凭产出视频 {real_name} 合成文件项）"
         )
         return item
 
@@ -574,10 +601,10 @@ def _patch_alist_upload() -> None:
     if _orig_alist_get_item_strict is not None:
         Alist.get_item_strict = get_item_strict_with_cas
     _alist_upload_patched = True
-    logger.info(
+    logger.debug(
         "CAS视频扩展：补丁已安装（Alist.upload"
         + (" + get_item_strict" if _orig_alist_get_item_strict is not None else "")
-        + "）—— 上传 .cas 后将查询 OpenList 目录实际内容判断秒传是否成功"
+        + "）"
     )
 
 
@@ -586,7 +613,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.38"
+    plugin_version = "1.39"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
