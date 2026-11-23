@@ -298,24 +298,28 @@ _CAS_OUTPUT_PROBE_EXTS = (
 
 def _is_openlist_storage(storage_oper: Any) -> bool:
     """
-    仅当存储操作目标是 OpenList/Alist 网盘时返回 True。
+    判断是否 OpenList/Alist 网盘（宽进策略，宁可多查也不要漏查）。
 
-    查询 OpenList 目录的两个前提之一：上传目标必须是网盘。本地存储（Local）等
-    其它实例一律返回 False，本地 .cas 传送不会触发任何网盘查询。
-    宿主 Alist 类走的就是 OpenList 兼容接口，用 isinstance 精确判断；导入失败时
-    退回按 schema.value 判断以兼容类路径变更。
+    本补丁只挂在 Alist.upload / Alist.get_item_strict 上，能进到兜底函数的
+    self 必然是宿主 Alist（OpenList 兼容接口）实例；本地 Local 存储走自己的
+    upload，根本不会触发本补丁。因此这里只做「明确排除本地」的保守判断：
+
+    - schema.value 明确是 local/u115/smb/rclone 等非网盘 -> False；
+    - 无法判断（类路径/schema 变更）-> True，绝不因识别失败而跳过查询。
+
+    绝不用 isinstance(self, Alist) 精确判断：宿主版本间 Alist 类导入路径/类对象
+    可能不一致，误判为 False 会让网盘上传查询被跳过，导致上传明明成功却被宿主
+    判为失败、界面报错（v1.39 的事故根因）。
     """
-    try:
-        from app.modules.filemanager.storages.alist import Alist
-        return isinstance(storage_oper, Alist)
-    except Exception:
-        pass
     try:
         schema = getattr(type(storage_oper), "schema", None)
         value = str(getattr(schema, "value", "") or "").lower()
-        return value in ("alist", "openlist")
+        if value and value not in ("alist", "alistgo", "openlist"):
+            return False
     except Exception:
-        return False
+        pass
+    # 识别不出来时按网盘处理：补丁挂载点已保证这里只可能是 Alist 实例
+    return True
 
 
 def _list_openlist_dir(storage_oper: Any, parent: Path, verbose: bool = True) -> List[Any]:
@@ -613,7 +617,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.39"
+    plugin_version = "1.40"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
