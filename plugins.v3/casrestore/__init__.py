@@ -22,6 +22,7 @@ CAS恢复源文件（CasRestore）
     "directoryMode": "manual",
     "targetFolderId": "",
     "targetFolderPath": "家庭1/测试/子目录",
+    "overwrite": false,
     "files": [{"localFileName": "xxx.cas", "content": "<cas 文件内容的 base64>"}]
 }
 """
@@ -176,6 +177,25 @@ def _row(*cols: Dict[str, Any]) -> Dict[str, Any]:
     return {"component": "VRow", "content": list(cols)}
 
 
+def _btn(text: str, api: str, color: str = "warning", method: str = "POST",
+         params: Optional[Dict[str, Any]] = None, success: str = "操作成功",
+         fail: str = "操作失败", md: int = 3) -> Dict[str, Any]:
+    """构造一个配置页/详情页操作按钮（点击触发插件 API）。"""
+    return {
+        "component": "VCol",
+        "props": {"cols": 12, "md": md},
+        "content": [{
+            "component": "VBtn",
+            "props": {"color": color, "size": "small", "variant": "outlined",
+                      "block": True},
+            "events": {"click": {"type": "request", "api": api, "method": method,
+                                  "params": params or {}, "success": success,
+                                  "fail": fail}},
+            "text": text,
+        }],
+    }
+
+
 def _alert(text: str, atype: str = "info", css: str = "my-2") -> Dict[str, Any]:
     """构造配置页/详情页的提示条。"""
     return {
@@ -196,7 +216,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.4.1"
+    plugin_version = "1.5.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -212,6 +232,7 @@ class CasRestore(_PluginBase):
         "target_folder_path": "",
         "notify": True,
         "onlyonce": False,
+        "overwrite": "0",
     }
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -301,7 +322,7 @@ class CasRestore(_PluginBase):
         return [
             {
                 "nav_key": "main",
-                "title": "CAS恢复记录",
+                "title": "CAS恢复",
                 "icon": "mdi-file-restore",
                 "section": "organize",
                 "permission": "manage",
@@ -314,6 +335,7 @@ class CasRestore(_PluginBase):
     # ------------------------------------------------------------------
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """返回 Vuetify 配置页；账号/家庭选项实时从 CAS 服务拉取供直接选择。"""
+        apikey = getattr(settings, "API_TOKEN", "") if settings else ""
         accounts, account_err = self._fetch_accounts()
         account_items: List[Dict[str, Any]] = accounts
         # 当前已保存的值不在选项里时也展示出来，避免打开配置页看着是空的
@@ -356,7 +378,13 @@ class CasRestore(_PluginBase):
                 "本地子目录结构，恢复成功后删除 .cas 并清空本地空目录。每次请求只提交一条 .cas。"
             ),
             _row(
-                _sw("enabled", "启用插件", md=12),
+                _sw("enabled", "启用插件", md=3),
+                _sw("notify", "发送通知", "有恢复成功时发送 Message 通知", md=3),
+                _sw("onlyonce", "立即运行一次", "保存后立即扫描一轮存量 .cas 并自动复位", md=3),
+                _btn("清除运行记录", "plugin/CasRestore/clear_run",
+                     color="warning",
+                     params={"apikey": apikey},
+                     success="已清空运行记录", fail="清空失败", md=3),
             ),
             _row(
                 _tf("watch_dir", "监控目录",
@@ -376,8 +404,10 @@ class CasRestore(_PluginBase):
                     "家庭1/测试", md=12),
             ),
             _row(
-                _sw("notify", "发送通知", "有恢复成功时发送 Message 通知", md=4),
-                _sw("onlyonce", "立即运行一次", "保存后立即扫描一轮存量 .cas 并自动复位", md=4),
+                _sel("overwrite", "同名文件",
+                     {"0": "跳过（网盘已有同名文件时不恢复）",
+                      "1": "覆盖（网盘已有同名文件时覆盖）"},
+                     "恢复时若网盘已存在同名文件，选择跳过还是覆盖", md=12),
             ),
         ]
         return [{"component": "VForm", "content": cfgs}], {**self._default_config, **self._config}
@@ -506,6 +536,8 @@ class CasRestore(_PluginBase):
              "auth": "bear", "summary": "测试 CAS 服务连接与鉴权"},
             {"path": "/clear_records", "endpoint": self.api_clear_records,
              "methods": ["POST"], "auth": "bear", "summary": "清空恢复记录"},
+            {"path": "/clear_run", "endpoint": self.api_clear_run,
+             "methods": ["POST"], "auth": "bear", "summary": "清空已处理与失败记录"},
             {"path": "/records", "endpoint": self.api_records, "methods": ["GET"],
              "auth": "bear", "summary": "恢复记录列表（侧栏页面用）"},
             {"path": "/accounts", "endpoint": self.api_accounts, "methods": ["GET"],
@@ -577,6 +609,16 @@ class CasRestore(_PluginBase):
             self.save_data("restore_records", [])
             self._log("已清空恢复记录")
             return {"success": True, "message": "已清空恢复记录"}
+        except Exception as err:  # noqa: BLE001
+            return {"success": False, "message": str(err)}
+
+    def api_clear_run(self) -> Dict[str, Any]:
+        """清空已处理与失败记录，让同名/同文件可重新触发恢复。"""
+        try:
+            self.save_data("processed", {})
+            self.save_data("failures", {})
+            self._log("已清空运行记录（已处理 + 失败）")
+            return {"success": True, "message": "已清空运行记录（已处理 + 失败）"}
         except Exception as err:  # noqa: BLE001
             return {"success": False, "message": str(err)}
 
@@ -1026,6 +1068,7 @@ class CasRestore(_PluginBase):
             "directoryMode": "manual",
             "targetFolderId": "",
             "targetFolderPath": target_path,
+            "overwrite": self._cfg_str("overwrite", "0") == "1",
             "files": [{"localFileName": path.name, "content": content}],
         }
         if self._cfg_str("scope") == "family":
