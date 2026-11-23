@@ -171,6 +171,19 @@
       "v1.0.0": "首次发布：集中管理 CAS 服务连接配置（地址/API Key/路径映射）并对外提供 get_cas_config() 读取接口，其它插件可通过 PluginManager.run_plugin_method('casassistant','get_cas_config') 获取，无需各自填写 CAS 服务地址。"
     }
   },
+  "CasRestore": {
+    "name": "CAS恢复源文件",
+    "description": "扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件（秒传，不占本地带宽）；服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写；恢复成功后可选删除本地 .cas。",
+    "labels": "CAS,秒传,恢复",
+    "version": "1.0.0",
+    "icon": "Moviepilot_A.png",
+    "author": "gldl137",
+    "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
+    "level": 1,
+    "history": {
+      "v1.0.0": "正式发布：轮询扫描监控目录（含子目录）中的 .cas 文件，分批调用 /api/cas-restore/restore 恢复；支持 select（目录 ID）/ manual（目录路径）两种目录模式、失败重试（3 次后放弃）、恢复成功后删除 .cas、Telegram 之外的 Message 通知与立即运行一次。"
+    }
+  },
   "XimalayaXMDecrypt": {
     "name": "喜马拉雅XM解密",
     "description": "把喜马拉雅下载的 .xm 加密音频批量解密为可播放的音频文件（输入目录 -> 输出目录）。",
