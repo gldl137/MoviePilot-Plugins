@@ -174,7 +174,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.2"
+    plugin_version = "1.2.3"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -216,13 +216,15 @@ class CasRestore(_PluginBase):
         self.stop_service()
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
-        # 兼容 v1.2.0 下拉 bug 存入的脏数据（整个选项对象），取其 value 字段
+        # 兼容 v1.2.0 下拉 bug 存入的脏数据（整个选项对象或 [object Object] 字符串）
         for key in ("account_id", "family_id"):
             val = self._config.get(key)
             if isinstance(val, dict):
-                self._config[key] = str(val.get("value") or "")
-            elif val is not None:
-                self._config[key] = str(val).strip()
+                val = val.get("value")
+            text = str(val or "").strip()
+            if text in ("[object Object]", "None", "undefined"):
+                text = ""
+            self._config[key] = text
         self._enabled = bool(self._config.get("enabled"))
         mode = "inotify 事件监控" if InotifyTrees is not None else "轮询兜底"
         self._log(f"初始化完成：启用={self._enabled}，监控方式={mode}，"
@@ -276,8 +278,18 @@ class CasRestore(_PluginBase):
         # 当前已保存的值不在选项里时也展示出来，避免打开配置页看着是空的
         saved_account = self._cfg_str("account_id")
         if saved_account and all(i["value"] != saved_account for i in account_items):
-            account_items = account_items + [{"label": f"ID {saved_account}（已保存）",
-                                              "value": saved_account}]
+            if saved_account.isdigit():
+                # 真实 ID 但不在列表里：兜底展示，避免打开配置页看着是空的
+                account_items = account_items + [{"label": f"ID {saved_account}（已保存）",
+                                                  "value": saved_account}]
+            else:
+                # 非 ID 形态的脏值（如 v1.2.0 的 [object Object]）：直接清空
+                saved_account = ""
+                self._config["account_id"] = ""
+        if not saved_account and account_items:
+            # 与源项目一致：默认选中第一个账号
+            saved_account = account_items[0]["value"]
+            self._config["account_id"] = saved_account
         account_hint = (f"共 {len(accounts)} 个账号（实时读取 CAS 服务）"
                         if not account_err else f"拉取失败：{account_err}")
 
