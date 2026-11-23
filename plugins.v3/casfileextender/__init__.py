@@ -487,19 +487,20 @@ def _patch_alist_upload() -> None:
             return result
 
         src_name = Path(str(path)).name
-        # 只认 MP 整理后的文件名：若 new_name 仍是英文源名（= 源文件裸名），
-        # 说明这是整理落地的中间态上传，MP 还没重命名为最终的中文名。
-        # 这种调用不做查询、不判失败，交给后续真正带整理后目标名的 upload 判定，
-        # 避免「中间态英文名查不到中文产出」的误报失败（v1.43 的问题）。
-        if new_name and str(new_name).lower() == src_name.lower():
+        # 只认 MP 整理后的文件名 new_name。两种「非最终整理名」都要跳过、不判失败：
+        #   ① new_name 为空：这次 upload 未带目标名（探测/中间态），退回 src_name
+        #      会用英文源名去查、对不上网盘中文产出而误报失败（v1.44 漏掉的情况）；
+        #   ② new_name 仍是源文件裸名：MP 还没重命名的中间态。
+        # 交给后续真正带中文整理名的那次 upload 判定。
+        if not new_name or str(new_name).lower() == src_name.lower():
             logger.debug(
-                f"CAS视频扩展：上传 .cas（{src_name}）的目标名仍为源文件名，属整理中间态，"
-                "跳过查询（等待 MP 重命名后的上传）"
+                f"CAS视频扩展：上传 .cas（{src_name}）未带整理后目标名或仍是源名，"
+                "属中间态，跳过查询（等待 MP 重命名后的上传）"
             )
             return result
         try:
             target_dir_str = str(getattr(target_dir, "path", "") or "")
-            target_name = new_name or src_name
+            target_name = str(new_name)
             if not target_dir_str or not target_name:
                 return result
             target_path = Path(target_dir_str) / target_name
@@ -662,7 +663,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.44"
+    plugin_version = "1.45"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
