@@ -87,8 +87,6 @@ def _inject_media_ext() -> bool:
     if ext not in exts:
         exts.append(ext)
         logger.debug(f"CAS视频扩展：已将 {ext} 注入视频白名单 RMT_MEDIAEXT")
-    else:
-        logger.debug(f"CAS视频扩展：视频白名单已含 {ext}")
     return True
 
 
@@ -112,8 +110,6 @@ def _patch_transfer_chain() -> None:
                 changed = True
         if changed:
             logger.debug("CAS视频扩展：已将 .cas 注入 TransferChain 媒体扩展名缓存")
-        else:
-            logger.debug("CAS视频扩展：TransferChain 媒体扩展名缓存已含 .cas")
     except Exception as err:
         logger.warning(f"CAS视频扩展：刷新 TransferChain 失败：{err}")
 
@@ -138,8 +134,6 @@ def _refresh_native_monitor() -> bool:
             exts.append(ext)
             dispatcher.all_exts = exts
             logger.debug("CAS视频扩展：已将 .cas 注入目录监控分发器扩展名")
-        else:
-            logger.debug("CAS视频扩展：目录监控分发器扩展名已含 .cas")
         return True
     except Exception as err:
         logger.warning(f"CAS视频扩展：刷新分发器失败：{err}")
@@ -191,6 +185,25 @@ _CAS_PENDING_TTL = 180.0  # 秒；跨存储 move 删源核对通常在数秒内�
 # key = (目标目录, 季集号或目标名) -> (时间戳, 命中的产出 FileItem)
 _cas_output_cache: Dict[str, Tuple[float, Any]] = {}
 _CAS_OUTPUT_CACHE_TTL = 15.0  # 秒；足够覆盖一次整理的多次 upload，又不至于复用旧结果
+
+# 成功日志去重：缓存 key 随中间态目标名变化可能不一致，导致同一产出被查到两次、
+# 打两条成功 INFO。这里按「产出文件名+大小」兜底去重，同一次整理只打一条。
+_logged_outputs: Dict[str, float] = {}
+_LOG_DEDUP_TTL = 60.0  # 秒；覆盖一次完整整理，避免同一产出刷屏
+
+
+def _should_log_output(found: Any) -> bool:
+    try:
+        key = f"{getattr(found, 'name', '?')}|{getattr(found, 'size', '?')}"
+        now = time.time()
+        with _cas_pending_lock:
+            last = _logged_outputs.get(key, 0.0)
+            if 0.0 < last and now - last < _LOG_DEDUP_TTL:
+                return False
+            _logged_outputs[key] = now
+        return True
+    except Exception:
+        return True
 
 
 def _output_cache_get(key: str) -> Optional[Any]:
@@ -461,10 +474,11 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
         found = match(entries)
         if found is not None:
             _output_cache_put(cache_key, found)
-            # 每个文件只打一条 INFO：查到实际产出即成功
-            logger.info(
-                f"CAS视频扩展：查到 CAS 产出 {getattr(found, 'name', '?')}（{getattr(found, 'size', '?')}B），判定上传成功"
-            )
+            # 每个文件只打一条 INFO：按产出名+大小去重，杜绝中间态目标名变化导致的重复日志
+            if _should_log_output(found):
+                logger.info(
+                    f"CAS视频扩展：查到 CAS 产出 {getattr(found, 'name', '?')}（{getattr(found, 'size', '?')}B），判定上传成功"
+                )
             return found
         if i + 1 < rounds:
             time.sleep(wait_interval)
@@ -697,11 +711,6 @@ def _patch_alist_upload() -> None:
         setattr(get_item_strict_with_cas, _CAS_ORIG_ATTR, base_strict)
         Alist.get_item_strict = get_item_strict_with_cas
     _alist_upload_patched = True
-    logger.debug(
-        "CAS视频扩展：补丁已安装（Alist.upload"
-        + (" + get_item_strict" if _orig_alist_get_item_strict is not None else "")
-        + "）"
-    )
 
 
 class CasFileExtender(_PluginBase):
@@ -709,7 +718,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.49"
+    plugin_version = "1.50"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
