@@ -35,12 +35,31 @@ const clearing = ref(false)
 const saveMessage = ref('')
 const saveError = ref(false)
 
-// 目录级联选择：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录的子文件夹
+// 目录级联选择（弹窗内）：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录子文件夹
+const folderDialog = ref(false)
 const folderStack = ref([{ id: '-11', name: '根目录' }])
 const folderList = ref([])
 const folderSelected = ref(null)
 const folderLoading = ref(false)
 const folderHint = ref('')
+// 暂存选择（确定才写回 cfg，取消不动已保存的目录）
+const pendingFolderId = ref('')
+const pendingFolderName = ref('')
+
+function openFolderDialog() {
+  pendingFolderId.value = cfg.value.target_folder_id
+  pendingFolderName.value = cfg.value.target_folder_name
+  folderStack.value = [{ id: '-11', name: '根目录' }]
+  folderSelected.value = null
+  folderDialog.value = true
+  loadFolders('-11', '根目录')
+}
+
+function confirmFolder() {
+  cfg.value.target_folder_id = pendingFolderId.value
+  cfg.value.target_folder_name = pendingFolderName.value
+  folderDialog.value = false
+}
 
 async function clearRun() {
   clearing.value = true
@@ -134,25 +153,17 @@ function onFolderPick(item) {
   folderSelected.value = null
   if (!item || !item.value) return
   folderStack.value.push({ id: item.value, name: item.name || item.label })
-  cfg.value.target_folder_id = item.value
-  cfg.value.target_folder_name = item.name || item.label
+  pendingFolderId.value = item.value
+  pendingFolderName.value = item.name || item.label
   loadFolders(item.value, item.name || item.label)
 }
 
 function goToFolder(index) {
   folderStack.value = folderStack.value.slice(0, index + 1)
   const top = folderStack.value[folderStack.value.length - 1]
-  cfg.value.target_folder_id = top.id === '-11' ? '' : top.id
-  cfg.value.target_folder_name = top.id === '-11' ? '' : top.name
+  pendingFolderId.value = top.id === '-11' ? '' : top.id
+  pendingFolderName.value = top.id === '-11' ? '' : top.name
   loadFolders(top.id, top.name)
-}
-
-function resetFolders() {
-  folderStack.value = [{ id: '-11', name: '根目录' }]
-  cfg.value.target_folder_id = ''
-  cfg.value.target_folder_name = ''
-  folderSelected.value = null
-  loadFolders('-11', '根目录')
 }
 
 async function save() {
@@ -182,9 +193,17 @@ async function save() {
   }
 }
 
-watch(() => cfg.value.account_id, () => { loadFamilies(); resetFolders() })
-watch(() => cfg.value.scope, () => { loadFamilies(); resetFolders() })
-watch(() => cfg.value.family_id, resetFolders)
+watch(() => cfg.value.account_id, loadFamilies)
+watch(() => cfg.value.scope, loadFamilies)
+watch(() => [cfg.value.account_id, cfg.value.scope, cfg.value.family_id], () => {
+  // 账号/家庭变了，若目录弹窗开着则重新从根目录加载；不清空已保存的目录选择
+  if (folderDialog.value) {
+    folderStack.value = [{ id: '-11', name: '根目录' }]
+    pendingFolderId.value = ''
+    pendingFolderName.value = ''
+    loadFolders('-11', '根目录')
+  }
+})
 
 onMounted(async () => {
   loading.value = true
@@ -202,7 +221,6 @@ onMounted(async () => {
     }
     await loadAccounts()
     await loadFamilies()
-    await loadFolders('-11', '根目录')
   } finally {
     loading.value = false
   }
@@ -280,35 +298,20 @@ onMounted(async () => {
             />
           </v-col>
           <v-col cols="12">
-            <div class="d-flex align-center flex-wrap mb-1" style="gap: 4px">
-              <span class="text-body-2 text-medium-emphasis">目标文件夹：</span>
-              <template v-for="(f, i) in folderStack" :key="f.id">
-                <span v-if="i > 0" class="text-body-2 text-medium-emphasis">/</span>
-                <v-chip
-                  size="x-small"
-                  :color="i === folderStack.length - 1 ? 'primary' : 'default'"
-                  variant="tonal"
-                  @click="goToFolder(i)"
-                >
-                  {{ f.name }}
-                </v-chip>
-              </template>
-              <v-chip v-if="cfg.target_folder_id" size="x-small" color="success" variant="tonal" class="ml-1">
-                已选：{{ cfg.target_folder_name }}
-              </v-chip>
+            <div class="d-flex align-center" style="gap: 8px">
+              <v-text-field
+                :model-value="cfg.target_folder_name || ''"
+                label="目标文件夹"
+                :hint="cfg.target_folder_id ? `已选择目录 ID：${cfg.target_folder_id}` : '未选择，点击右侧按钮选择'"
+                persistent-hint
+                density="compact"
+                readonly
+                class="flex-grow-1"
+              />
+              <v-btn color="primary" variant="outlined" @click="openFolderDialog">
+                选择目录
+              </v-btn>
             </div>
-            <v-select
-              v-model="folderSelected"
-              :items="folderList"
-              :loading="folderLoading"
-              label="子文件夹"
-              :hint="folderHint"
-              persistent-hint
-              density="compact"
-              item-title="label"
-              return-object
-              @update:model-value="onFolderPick"
-            />
           </v-col>
           <v-col cols="12">
             <v-select
@@ -335,5 +338,47 @@ onMounted(async () => {
         <v-btn color="primary" :loading="saving" @click="save">保存配置</v-btn>
       </v-card-actions>
     </v-card>
+
+    <!-- 目标文件夹选择弹窗 -->
+    <v-dialog v-model="folderDialog" max-width="640">
+      <v-card>
+        <v-card-title>选择目标文件夹</v-card-title>
+        <v-card-text>
+          <div class="d-flex align-center flex-wrap mb-3" style="gap: 4px">
+            <template v-for="(f, i) in folderStack" :key="f.id">
+              <span v-if="i > 0" class="text-body-2 text-medium-emphasis">/</span>
+              <v-chip
+                size="x-small"
+                :color="i === folderStack.length - 1 ? 'primary' : 'default'"
+                variant="tonal"
+                @click="goToFolder(i)"
+              >
+                {{ f.name }}
+              </v-chip>
+            </template>
+          </div>
+          <v-select
+            v-model="folderSelected"
+            :items="folderList"
+            :loading="folderLoading"
+            label="子文件夹"
+            :hint="folderHint"
+            persistent-hint
+            density="compact"
+            item-title="label"
+            return-object
+            @update:model-value="onFolderPick"
+          />
+          <div class="text-body-2 mt-3" :class="pendingFolderId ? 'text-success' : 'text-medium-emphasis'">
+            当前选中：{{ pendingFolderName || '（根目录，请选择一个文件夹）' }}
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="folderDialog = false">取消</v-btn>
+          <v-btn color="primary" @click="confirmFolder">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>

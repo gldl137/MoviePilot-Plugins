@@ -1,11 +1,15 @@
-import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, g as __mf_9, j as __mf_4, n as __mf_14, k as __mf_7, i as __mf_3, o as __mf_6, q as __mf_2 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
+import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, g as __mf_9, q as __mf_2, i as __mf_3, k as __mf_7, j as __mf_4, n as __mf_14 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
 
 const _hoisted_1 = { class: "pa-4" };
 const _hoisted_2 = {
-  class: "d-flex align-center flex-wrap mb-1",
-  style: {"gap":"4px"}
+  class: "d-flex align-center",
+  style: {"gap":"8px"}
 };
 const _hoisted_3 = {
+  class: "d-flex align-center flex-wrap mb-3",
+  style: {"gap":"4px"}
+};
+const _hoisted_4 = {
   key: 0,
   class: "text-body-2 text-medium-emphasis"
 };
@@ -51,12 +55,31 @@ const clearing = __mf_1(false);
 const saveMessage = __mf_1('');
 const saveError = __mf_1(false);
 
-// 目录级联选择：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录的子文件夹
+// 目录级联选择（弹窗内）：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录子文件夹
+const folderDialog = __mf_1(false);
 const folderStack = __mf_1([{ id: '-11', name: '根目录' }]);
 const folderList = __mf_1([]);
 const folderSelected = __mf_1(null);
 const folderLoading = __mf_1(false);
 const folderHint = __mf_1('');
+// 暂存选择（确定才写回 cfg，取消不动已保存的目录）
+const pendingFolderId = __mf_1('');
+const pendingFolderName = __mf_1('');
+
+function openFolderDialog() {
+  pendingFolderId.value = cfg.value.target_folder_id;
+  pendingFolderName.value = cfg.value.target_folder_name;
+  folderStack.value = [{ id: '-11', name: '根目录' }];
+  folderSelected.value = null;
+  folderDialog.value = true;
+  loadFolders('-11');
+}
+
+function confirmFolder() {
+  cfg.value.target_folder_id = pendingFolderId.value;
+  cfg.value.target_folder_name = pendingFolderName.value;
+  folderDialog.value = false;
+}
 
 async function clearRun() {
   clearing.value = true;
@@ -150,25 +173,17 @@ function onFolderPick(item) {
   folderSelected.value = null;
   if (!item || !item.value) return
   folderStack.value.push({ id: item.value, name: item.name || item.label });
-  cfg.value.target_folder_id = item.value;
-  cfg.value.target_folder_name = item.name || item.label;
+  pendingFolderId.value = item.value;
+  pendingFolderName.value = item.name || item.label;
   loadFolders(item.value, item.name || item.label);
 }
 
 function goToFolder(index) {
   folderStack.value = folderStack.value.slice(0, index + 1);
   const top = folderStack.value[folderStack.value.length - 1];
-  cfg.value.target_folder_id = top.id === '-11' ? '' : top.id;
-  cfg.value.target_folder_name = top.id === '-11' ? '' : top.name;
+  pendingFolderId.value = top.id === '-11' ? '' : top.id;
+  pendingFolderName.value = top.id === '-11' ? '' : top.name;
   loadFolders(top.id, top.name);
-}
-
-function resetFolders() {
-  folderStack.value = [{ id: '-11', name: '根目录' }];
-  cfg.value.target_folder_id = '';
-  cfg.value.target_folder_name = '';
-  folderSelected.value = null;
-  loadFolders('-11');
 }
 
 async function save() {
@@ -198,9 +213,17 @@ async function save() {
   }
 }
 
-__mf_16(() => cfg.value.account_id, () => { loadFamilies(); resetFolders(); });
-__mf_16(() => cfg.value.scope, () => { loadFamilies(); resetFolders(); });
-__mf_16(() => cfg.value.family_id, resetFolders);
+__mf_16(() => cfg.value.account_id, loadFamilies);
+__mf_16(() => cfg.value.scope, loadFamilies);
+__mf_16(() => [cfg.value.account_id, cfg.value.scope, cfg.value.family_id], () => {
+  // 账号/家庭变了，若目录弹窗开着则重新从根目录加载；不清空已保存的目录选择
+  if (folderDialog.value) {
+    folderStack.value = [{ id: '-11', name: '根目录' }];
+    pendingFolderId.value = '';
+    pendingFolderName.value = '';
+    loadFolders('-11');
+  }
+});
 
 __mf_12(async () => {
   loading.value = true;
@@ -218,7 +241,6 @@ __mf_12(async () => {
     }
     await loadAccounts();
     await loadFamilies();
-    await loadFolders('-11', '根目录');
   } finally {
     loading.value = false;
   }
@@ -232,18 +254,19 @@ return (_ctx, _cache) => {
   const _component_v_btn = __mf_15("v-btn");
   const _component_v_select = __mf_15("v-select");
   const _component_v_text_field = __mf_15("v-text-field");
-  const _component_v_chip = __mf_15("v-chip");
   const _component_v_row = __mf_15("v-row");
   const _component_v_card_text = __mf_15("v-card-text");
   const _component_v_spacer = __mf_15("v-spacer");
   const _component_v_card_actions = __mf_15("v-card-actions");
   const _component_v_card = __mf_15("v-card");
+  const _component_v_chip = __mf_15("v-chip");
+  const _component_v_dialog = __mf_15("v-dialog");
 
   return (__mf_13(), __mf_8("div", _hoisted_1, [
     __mf_11(_component_v_card, null, {
       default: __mf_17(() => [
         __mf_11(_component_v_card_title, null, {
-          default: __mf_17(() => [...(_cache[9] || (_cache[9] = [
+          default: __mf_17(() => [...(_cache[11] || (_cache[11] = [
             __mf_10("CAS 恢复源文件 · 设置", -1)
           ]))]),
           _: 1
@@ -256,7 +279,7 @@ return (_ctx, _cache) => {
               density: "compact",
               class: "mb-4"
             }, {
-              default: __mf_17(() => [...(_cache[10] || (_cache[10] = [
+              default: __mf_17(() => [...(_cache[12] || (_cache[12] = [
                 __mf_10(" 监控目录有新 .cas 写入时自动恢复；CAS 服务地址与 API Key 读取「CAS助手」插件，账号 / 家庭 / 目标路径在此选择。 ", -1)
               ]))]),
               _: 1
@@ -321,7 +344,7 @@ return (_ctx, _cache) => {
                       loading: clearing.value,
                       onClick: clearRun
                     }, {
-                      default: __mf_17(() => [...(_cache[11] || (_cache[11] = [
+                      default: __mf_17(() => [...(_cache[13] || (_cache[13] = [
                         __mf_10(" 清除运行记录 ", -1)
                       ]))]),
                       _: 1
@@ -404,57 +427,26 @@ return (_ctx, _cache) => {
                 __mf_11(_component_v_col, { cols: "12" }, {
                   default: __mf_17(() => [
                     __mf_9("div", _hoisted_2, [
-                      _cache[12] || (_cache[12] = __mf_9("span", { class: "text-body-2 text-medium-emphasis" }, "目标文件夹：", -1)),
-                      (__mf_13(true), __mf_8(__mf_4, null, __mf_14(folderStack.value, (f, i) => {
-                        return (__mf_13(), __mf_8(__mf_4, {
-                          key: f.id
-                        }, [
-                          (i > 0)
-                            ? (__mf_13(), __mf_8("span", _hoisted_3, "/"))
-                            : __mf_7("", true),
-                          __mf_11(_component_v_chip, {
-                            size: "x-small",
-                            color: i === folderStack.value.length - 1 ? 'primary' : 'default',
-                            variant: "tonal",
-                            onClick: $event => (goToFolder(i))
-                          }, {
-                            default: __mf_17(() => [
-                              __mf_10(__mf_3(f.name), 1)
-                            ]),
-                            _: 2
-                          }, 1032, ["color", "onClick"])
-                        ], 64))
-                      }), 128)),
-                      (cfg.value.target_folder_id)
-                        ? (__mf_13(), __mf_6(_component_v_chip, {
-                            key: 0,
-                            size: "x-small",
-                            color: "success",
-                            variant: "tonal",
-                            class: "ml-1"
-                          }, {
-                            default: __mf_17(() => [
-                              __mf_10(" 已选：" + __mf_3(cfg.value.target_folder_name), 1)
-                            ]),
-                            _: 1
-                          }))
-                        : __mf_7("", true)
-                    ]),
-                    __mf_11(_component_v_select, {
-                      modelValue: folderSelected.value,
-                      "onUpdate:modelValue": [
-                        _cache[7] || (_cache[7] = $event => ((folderSelected).value = $event)),
-                        onFolderPick
-                      ],
-                      items: folderList.value,
-                      loading: folderLoading.value,
-                      label: "子文件夹",
-                      hint: folderHint.value,
-                      "persistent-hint": "",
-                      density: "compact",
-                      "item-title": "label",
-                      "return-object": ""
-                    }, null, 8, ["modelValue", "items", "loading", "hint"])
+                      __mf_11(_component_v_text_field, {
+                        "model-value": cfg.value.target_folder_name || '',
+                        label: "目标文件夹",
+                        hint: cfg.value.target_folder_id ? `已选择目录 ID：${cfg.value.target_folder_id}` : '未选择，点击右侧按钮选择',
+                        "persistent-hint": "",
+                        density: "compact",
+                        readonly: "",
+                        class: "flex-grow-1"
+                      }, null, 8, ["model-value", "hint"]),
+                      __mf_11(_component_v_btn, {
+                        color: "primary",
+                        variant: "outlined",
+                        onClick: openFolderDialog
+                      }, {
+                        default: __mf_17(() => [...(_cache[14] || (_cache[14] = [
+                          __mf_10(" 选择目录 ", -1)
+                        ]))]),
+                        _: 1
+                      })
+                    ])
                   ]),
                   _: 1
                 }),
@@ -462,7 +454,7 @@ return (_ctx, _cache) => {
                   default: __mf_17(() => [
                     __mf_11(_component_v_select, {
                       modelValue: cfg.value.overwrite,
-                      "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((cfg.value.overwrite) = $event)),
+                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.value.overwrite) = $event)),
                       items: [
                 { title: '跳过（网盘已有同名文件时不恢复）', value: '0' },
                 { title: '覆盖（网盘已有同名文件时覆盖）', value: '1' },
@@ -497,7 +489,7 @@ return (_ctx, _cache) => {
               loading: saving.value,
               onClick: save
             }, {
-              default: __mf_17(() => [...(_cache[13] || (_cache[13] = [
+              default: __mf_17(() => [...(_cache[15] || (_cache[15] = [
                 __mf_10("保存配置", -1)
               ]))]),
               _: 1
@@ -507,7 +499,96 @@ return (_ctx, _cache) => {
         })
       ]),
       _: 1
-    })
+    }),
+    __mf_11(_component_v_dialog, {
+      modelValue: folderDialog.value,
+      "onUpdate:modelValue": _cache[10] || (_cache[10] = $event => ((folderDialog).value = $event)),
+      "max-width": "640"
+    }, {
+      default: __mf_17(() => [
+        __mf_11(_component_v_card, null, {
+          default: __mf_17(() => [
+            __mf_11(_component_v_card_title, null, {
+              default: __mf_17(() => [...(_cache[16] || (_cache[16] = [
+                __mf_10("选择目标文件夹", -1)
+              ]))]),
+              _: 1
+            }),
+            __mf_11(_component_v_card_text, null, {
+              default: __mf_17(() => [
+                __mf_9("div", _hoisted_3, [
+                  (__mf_13(true), __mf_8(__mf_4, null, __mf_14(folderStack.value, (f, i) => {
+                    return (__mf_13(), __mf_8(__mf_4, {
+                      key: f.id
+                    }, [
+                      (i > 0)
+                        ? (__mf_13(), __mf_8("span", _hoisted_4, "/"))
+                        : __mf_7("", true),
+                      __mf_11(_component_v_chip, {
+                        size: "x-small",
+                        color: i === folderStack.value.length - 1 ? 'primary' : 'default',
+                        variant: "tonal",
+                        onClick: $event => (goToFolder(i))
+                      }, {
+                        default: __mf_17(() => [
+                          __mf_10(__mf_3(f.name), 1)
+                        ]),
+                        _: 2
+                      }, 1032, ["color", "onClick"])
+                    ], 64))
+                  }), 128))
+                ]),
+                __mf_11(_component_v_select, {
+                  modelValue: folderSelected.value,
+                  "onUpdate:modelValue": [
+                    _cache[8] || (_cache[8] = $event => ((folderSelected).value = $event)),
+                    onFolderPick
+                  ],
+                  items: folderList.value,
+                  loading: folderLoading.value,
+                  label: "子文件夹",
+                  hint: folderHint.value,
+                  "persistent-hint": "",
+                  density: "compact",
+                  "item-title": "label",
+                  "return-object": ""
+                }, null, 8, ["modelValue", "items", "loading", "hint"]),
+                __mf_9("div", {
+                  class: __mf_2(["text-body-2 mt-3", pendingFolderId.value ? 'text-success' : 'text-medium-emphasis'])
+                }, " 当前选中：" + __mf_3(pendingFolderName.value || '（根目录，请选择一个文件夹）'), 3)
+              ]),
+              _: 1
+            }),
+            __mf_11(_component_v_card_actions, null, {
+              default: __mf_17(() => [
+                __mf_11(_component_v_spacer),
+                __mf_11(_component_v_btn, {
+                  variant: "text",
+                  onClick: _cache[9] || (_cache[9] = $event => (folderDialog.value = false))
+                }, {
+                  default: __mf_17(() => [...(_cache[17] || (_cache[17] = [
+                    __mf_10("取消", -1)
+                  ]))]),
+                  _: 1
+                }),
+                __mf_11(_component_v_btn, {
+                  color: "primary",
+                  onClick: confirmFolder
+                }, {
+                  default: __mf_17(() => [...(_cache[18] || (_cache[18] = [
+                    __mf_10("确定", -1)
+                  ]))]),
+                  _: 1
+                })
+              ]),
+              _: 1
+            })
+          ]),
+          _: 1
+        })
+      ]),
+      _: 1
+    }, 8, ["modelValue"])
   ]))
 }
 }
