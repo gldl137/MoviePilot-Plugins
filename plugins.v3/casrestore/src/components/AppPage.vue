@@ -166,13 +166,16 @@ onMounted(load)
           </div>
         </div>
 
+        <!-- 第三列：状态 -->
+        <div class="record-status flex-shrink-0 ml-3">
+          <v-chip size="x-small" variant="tonal" :color="r.status === '成功' ? 'success' : 'error'">
+            {{ r.status }}
+          </v-chip>
+        </div>
+
+        <!-- 第四列：模式 / 大小 / 时间 -->
         <div class="d-flex flex-column align-end flex-shrink-0 ml-3" style="gap: 3px">
-          <div class="d-flex align-center" style="gap: 4px">
-            <v-chip size="x-small" variant="tonal" :color="r.status === '成功' ? 'success' : 'error'">
-              {{ r.status }}
-            </v-chip>
-            <v-chip v-if="r.mode" size="x-small" variant="tonal" color="primary">{{ r.mode }}</v-chip>
-          </div>
+          <v-chip v-if="r.mode" size="x-small" variant="tonal" color="primary">{{ r.mode }}</v-chip>
           <div class="d-flex align-center" style="gap: 6px">
             <span v-if="r.size" class="record-meta">{{ r.size }}</span>
             <span class="record-meta">{{ relativeTime(r.time) }}</span>
@@ -232,6 +235,10 @@ onMounted(load)
   font-weight: 500;
   padding-right: 12px;
   white-space: nowrap;
+}
+.record-status {
+  width: 56px;
+  text-align: center;
 }
 .path-tag {
   display: inline-block;

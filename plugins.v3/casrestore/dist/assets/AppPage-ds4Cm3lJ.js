@@ -25,13 +25,10 @@ const _hoisted_12 = {
   key: 2,
   class: "record-path text-truncate"
 };
-const _hoisted_13 = {
+const _hoisted_13 = { class: "record-status flex-shrink-0 ml-3" };
+const _hoisted_14 = {
   class: "d-flex flex-column align-end flex-shrink-0 ml-3",
   style: {"gap":"3px"}
-};
-const _hoisted_14 = {
-  class: "d-flex align-center",
-  style: {"gap":"4px"}
 };
 const _hoisted_15 = {
   class: "d-flex align-center",
@@ -269,31 +266,31 @@ return (_ctx, _cache) => {
                   : __mf_7("", true)
               ]),
               __mf_9("div", _hoisted_13, [
-                __mf_9("div", _hoisted_14, [
-                  __mf_11(_component_v_chip, {
-                    size: "x-small",
-                    variant: "tonal",
-                    color: r.status === '成功' ? 'success' : 'error'
-                  }, {
-                    default: __mf_17(() => [
-                      __mf_10(__mf_3(r.status), 1)
-                    ]),
-                    _: 2
-                  }, 1032, ["color"]),
-                  (r.mode)
-                    ? (__mf_13(), __mf_6(_component_v_chip, {
-                        key: 0,
-                        size: "x-small",
-                        variant: "tonal",
-                        color: "primary"
-                      }, {
-                        default: __mf_17(() => [
-                          __mf_10(__mf_3(r.mode), 1)
-                        ]),
-                        _: 2
-                      }, 1024))
-                    : __mf_7("", true)
-                ]),
+                __mf_11(_component_v_chip, {
+                  size: "x-small",
+                  variant: "tonal",
+                  color: r.status === '成功' ? 'success' : 'error'
+                }, {
+                  default: __mf_17(() => [
+                    __mf_10(__mf_3(r.status), 1)
+                  ]),
+                  _: 2
+                }, 1032, ["color"])
+              ]),
+              __mf_9("div", _hoisted_14, [
+                (r.mode)
+                  ? (__mf_13(), __mf_6(_component_v_chip, {
+                      key: 0,
+                      size: "x-small",
+                      variant: "tonal",
+                      color: "primary"
+                    }, {
+                      default: __mf_17(() => [
+                        __mf_10(__mf_3(r.mode), 1)
+                      ]),
+                      _: 2
+                    }, 1024))
+                  : __mf_7("", true),
                 __mf_9("div", _hoisted_15, [
                   (r.size)
                     ? (__mf_13(), __mf_8("span", _hoisted_16, __mf_3(r.size), 1))
@@ -331,6 +328,6 @@ return (_ctx, _cache) => {
 }
 
 };
-const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-f144e897"]]);
+const AppPage = /*#__PURE__*/_export_sfc(_sfc_main, [['__scopeId',"data-v-39c276b7"]]);
 
 export { AppPage as default };
