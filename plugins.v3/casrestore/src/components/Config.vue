@@ -298,14 +298,16 @@ onMounted(async () => {
             />
           </v-col>
           <v-col cols="12">
+            <div v-if="cfg.target_folder_id" class="text-caption text-medium-emphasis mb-1">
+              已选择目录 ID：{{ cfg.target_folder_id }}
+            </div>
             <div class="d-flex align-center" style="gap: 8px">
               <v-text-field
                 :model-value="cfg.target_folder_name || ''"
                 label="目标文件夹"
-                :hint="cfg.target_folder_id ? `已选择目录 ID：${cfg.target_folder_id}` : '未选择，点击右侧按钮选择'"
-                persistent-hint
                 density="compact"
                 readonly
+                hide-details
                 class="flex-grow-1"
               />
               <v-btn color="primary" variant="outlined" @click="openFolderDialog">

@@ -1,15 +1,19 @@
-import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, g as __mf_9, q as __mf_2, i as __mf_3, k as __mf_7, j as __mf_4, n as __mf_14 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
+import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, i as __mf_3, k as __mf_7, g as __mf_9, q as __mf_2, j as __mf_4, n as __mf_14 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
 
 const _hoisted_1 = { class: "pa-4" };
 const _hoisted_2 = {
+  key: 0,
+  class: "text-caption text-medium-emphasis mb-1"
+};
+const _hoisted_3 = {
   class: "d-flex align-center",
   style: {"gap":"8px"}
 };
-const _hoisted_3 = {
+const _hoisted_4 = {
   class: "d-flex align-center flex-wrap mb-3",
   style: {"gap":"4px"}
 };
-const _hoisted_4 = {
+const _hoisted_5 = {
   key: 0,
   class: "text-body-2 text-medium-emphasis"
 };
@@ -426,16 +430,18 @@ return (_ctx, _cache) => {
                 }),
                 __mf_11(_component_v_col, { cols: "12" }, {
                   default: __mf_17(() => [
-                    __mf_9("div", _hoisted_2, [
+                    (cfg.value.target_folder_id)
+                      ? (__mf_13(), __mf_8("div", _hoisted_2, " 已选择目录 ID：" + __mf_3(cfg.value.target_folder_id), 1))
+                      : __mf_7("", true),
+                    __mf_9("div", _hoisted_3, [
                       __mf_11(_component_v_text_field, {
                         "model-value": cfg.value.target_folder_name || '',
                         label: "目标文件夹",
-                        hint: cfg.value.target_folder_id ? `已选择目录 ID：${cfg.value.target_folder_id}` : '未选择，点击右侧按钮选择',
-                        "persistent-hint": "",
                         density: "compact",
                         readonly: "",
+                        "hide-details": "",
                         class: "flex-grow-1"
-                      }, null, 8, ["model-value", "hint"]),
+                      }, null, 8, ["model-value"]),
                       __mf_11(_component_v_btn, {
                         color: "primary",
                         variant: "outlined",
@@ -516,13 +522,13 @@ return (_ctx, _cache) => {
             }),
             __mf_11(_component_v_card_text, null, {
               default: __mf_17(() => [
-                __mf_9("div", _hoisted_3, [
+                __mf_9("div", _hoisted_4, [
                   (__mf_13(true), __mf_8(__mf_4, null, __mf_14(folderStack.value, (f, i) => {
                     return (__mf_13(), __mf_8(__mf_4, {
                       key: f.id
                     }, [
                       (i > 0)
-                        ? (__mf_13(), __mf_8("span", _hoisted_4, "/"))
+                        ? (__mf_13(), __mf_8("span", _hoisted_5, "/"))
                         : __mf_7("", true),
                       __mf_11(_component_v_chip, {
                         size: "x-small",
