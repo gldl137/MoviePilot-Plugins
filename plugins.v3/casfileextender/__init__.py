@@ -171,9 +171,13 @@ def _background_refresh_monitor() -> None:
 #     存在则合成 .cas FileItem 通过核对；不存在照常返回 None（保留数据安全保护）。
 
 _upload_fallback_enabled: bool = False  # 由插件实例启用状态驱动，禁用时不兜底
-_alist_upload_patched: bool = False
+_alist_upload_patched: bool = False  # 兼容保留：是否曾安装补丁（不再用作早退守卫）
 _orig_alist_upload = None  # type: ignore
 _orig_alist_get_item_strict = None  # type: ignore
+# 挂在本插件 wrapper 函数对象上的属性：记录它包装的「真正原始函数」。
+# 热更新后旧 wrapper 仍留在 Alist.upload 上，靠它解引用出原始实现，
+# 避免把旧 wrapper 当成原始函数造成套娃（旧闭包/旧日志继续执行）。
+_CAS_ORIG_ATTR = "_casfileextender_orig_func"
 
 # 本插件合成的目标 .cas 项缓存：path(as_posix) -> {size, basename, ts}
 # 供 get_item_strict 兜底核对时复用 size（保证与 __assert_file_identity 的 expected 一致），
@@ -475,17 +479,28 @@ def _patch_alist_upload() -> None:
     类级 patch，幂等。
     """
     global _alist_upload_patched, _orig_alist_upload, _orig_alist_get_item_strict
-    if _alist_upload_patched:
-        return
     try:
         from app.modules.filemanager.storages.alist import Alist
     except Exception as err:
         logger.warning(f"CAS视频扩展：导入 Alist 失败，无法启用上传兜底：{err}")
         return
 
-    _orig_alist_upload = Alist.upload
+    # 热更新重装：当前 Alist.upload 可能仍是上一次安装的旧 wrapper。
+    # 通过它身上记录的属性取回真正的原始函数；没标记说明当前就是宿主原始实现。
+    # 每次 init_plugin 都基于同一份原始函数重建 wrapper，杜绝旧闭包残留与套娃。
+    current_upload = getattr(Alist, "upload", None)
+    marked_upload = getattr(current_upload, _CAS_ORIG_ATTR, None)
+    base_upload = marked_upload if marked_upload is not None else current_upload
+    current_strict = getattr(Alist, "get_item_strict", None)
+    marked_strict = getattr(current_strict, _CAS_ORIG_ATTR, None)
+    base_strict = marked_strict if marked_strict is not None else current_strict
+    if base_upload is None:
+        logger.warning("CAS视频扩展：Alist.upload 不可用，跳过补丁安装")
+        return
+
+    _orig_alist_upload = base_upload
     # get_item_strict 在部分宿主版本不存在，缺失时不 patch 它，绝不让整个 patch 失败
-    _orig_alist_get_item_strict = getattr(Alist, "get_item_strict", None)
+    _orig_alist_get_item_strict = base_strict
 
     def upload_with_cas_fallback(self, *args, **kwargs):
         result = _orig_alist_upload(self, *args, **kwargs)
@@ -675,8 +690,11 @@ def _patch_alist_upload() -> None:
         )
         return item
 
+    # 标记新 wrapper 指向其包装的原始函数，供下次热更新重装时解引用
+    setattr(upload_with_cas_fallback, _CAS_ORIG_ATTR, base_upload)
     Alist.upload = upload_with_cas_fallback
     if _orig_alist_get_item_strict is not None:
+        setattr(get_item_strict_with_cas, _CAS_ORIG_ATTR, base_strict)
         Alist.get_item_strict = get_item_strict_with_cas
     _alist_upload_patched = True
     logger.debug(
@@ -691,7 +709,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.48"
+    plugin_version = "1.49"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
