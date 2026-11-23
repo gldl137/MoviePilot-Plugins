@@ -4,7 +4,11 @@ CAS视频扩展（CasFileExtender）
 让 MoviePilot 把 .cas 当作视频文件识别：
 1. 把 .cas 注入 settings.RMT_MEDIAEXT（影响实时读取扩展名的各处，如扫描、下载判断等）；
 2. 刷新 TransferChain 单例缓存的 _media_exts / _allowed_exts（整理链按此缓存判定媒体类型）；
-3. 刷新 Monitor 单例的 dispatcher.all_exts（目录监控按此过滤并触发整理）。
+3. 刷新 Monitor 单例的 dispatcher.all_exts（目录监控按此过滤并触发整理）；
+4. 为 OpenList/AList 的上传回查加兜底：CAS 秒传在网盘端实际已成功，但 alist 按目标
+   .cas 路径回查常报 object not found（.cas 被秒传端消费/改名或索引短时间不可见），
+   宿主 Alist.upload() 会把这种「PUT 成功但回查不到」误判成上传失败。这里参照宿主
+   create_folder/copy/move 的 __build_transfer_item 兜底模式，为 .cas 合成目标文件项。
 
 关键点：TransferChain 与 Monitor 的扩展名都是在实例 __init__ 时一次性算好并缓存的，
 并不会实时读 settings，所以仅修改 settings.RMT_MEDIAEXT 或在类上打补丁都不够，
@@ -154,12 +158,124 @@ def _background_refresh_monitor() -> None:
         time.sleep(2)
 
 
+# ---------------- OpenList/AList 上传回查兜底 ----------------
+# 背景：宿主 Alist.upload() 在 PUT /api/fs/put 返回 200 后会立刻调用
+# _delay_get_item(target_path, refresh=True) 回查目标文件，2 次失败（各 sleep 2s）即
+# 返回 None，被整理链翻译成「上传 alist 失败」。CAS 秒传场景里，网盘端实际已把视频
+# 落盘（.cas 被消费/改名成真实视频名），所以按原始 .cas 路径回查必然 object not found。
+# 宿主的 create_folder/copy/move 早已用 __build_transfer_item 对「操作成功但元数据短时
+# 不可见」做了兜底，唯独 upload() 漏了。这里给 upload 补上同样的兜底。
+
+_upload_fallback_enabled: bool = False  # 由插件实例启用状态驱动，禁用时不兜底
+_alist_upload_patched: bool = False
+_orig_alist_upload = None  # type: ignore
+
+
+def _build_uploaded_fileitem(storage_oper: Any, target_dir: Any, path: Any,
+                             new_name: Optional[str]) -> Optional[Any]:
+    """
+    参照宿主 Alist.__build_transfer_item，上传成功但回查不到时按目标路径合成 FileItem。
+
+    返回 None 表示无法合成（调用方应保持原生失败行为）。
+    """
+    from types import SimpleNamespace
+
+    src_path = Path(str(path or ""))
+    target_name = new_name or src_path.name
+    if not target_name:
+        return None
+    target_dir_str = str(getattr(target_dir, "path", "") or "")
+    if not target_dir_str:
+        return None
+    target_path = Path(target_dir_str) / target_name
+
+    try:
+        stat = src_path.stat()
+        size, mtime = stat.st_size, stat.st_mtime
+    except Exception:
+        size, mtime = None, None
+
+    # 源文件项只需提供 文件类型/size/mtime/thumbnail 这几个属性，
+    # 优先复用宿主私有方法（字段定义随宿主版本变化也不用我们操心）。
+    source_item = SimpleNamespace(
+        type="file", size=size, modify_time=mtime, thumbnail=None
+    )
+    builder = (getattr(storage_oper, "_Alist__build_transfer_item", None)
+               or getattr(storage_oper, "__build_transfer_item", None))
+    if callable(builder):
+        return builder(source_item, target_path)
+
+    # 降级：直接构造 FileItem（兼容宿主把私有方法改名/移除的情况）
+    try:
+        from app.schemas.file import FileItem
+        schema = getattr(type(storage_oper), "schema", None)
+        storage_value = getattr(schema, "value", "alist") if schema is not None else "alist"
+        return FileItem(
+            storage=storage_value,
+            type="file",
+            path=target_path.as_posix(),
+            name=target_name,
+            basename=Path(target_name).stem,
+            extension=Path(target_name).suffix[1:] or None,
+            size=size,
+            modify_time=mtime,
+        )
+    except Exception as err:
+        logger.warning(f"CAS视频扩展：合成上传文件项失败：{err}")
+        return None
+
+
+def _patch_alist_upload() -> None:
+    """
+    monkey-patch Alist.upload：PUT 成功但回查不到 .cas 时，用目标路径合成文件项返回，
+    避免整理任务被误判为「上传 alist 失败」。类级 patch，幂等。
+    """
+    global _alist_upload_patched, _orig_alist_upload
+    if _alist_upload_patched:
+        return
+    try:
+        from app.modules.filemanager.storages.alist import Alist
+    except Exception as err:
+        logger.warning(f"CAS视频扩展：导入 Alist 失败，无法启用上传兜底：{err}")
+        return
+
+    _orig_alist_upload = Alist.upload
+
+    def upload_with_cas_fallback(self, *args, **kwargs):
+        result = _orig_alist_upload(self, *args, **kwargs)
+        if result is not None or not _upload_fallback_enabled:
+            return result
+
+        # 兼容不同宿主签名：upload(fileitem, path, new_name=None, task=False)
+        target_dir = args[0] if len(args) > 0 else kwargs.get("fileitem")
+        path = args[1] if len(args) > 1 else kwargs.get("path")
+        new_name = args[2] if len(args) > 2 else kwargs.get("new_name")
+        if not path or not str(path).lower().endswith(f".{DEFAULT_EXT}"):
+            return None
+
+        try:
+            item = _build_uploaded_fileitem(self, target_dir, path, new_name)
+            if item is not None:
+                logger.info(
+                    f"CAS视频扩展：OpenList 上传 {Path(str(path)).name} 后按目标路径回查不到，"
+                    "已合成文件项继续整理（网盘端秒传实际已成功）"
+                )
+            return item
+        except Exception as err:
+            logger.warning(f"CAS视频扩展：上传回查兜底异常：{err}")
+            return None
+
+    Alist.upload = upload_with_cas_fallback
+    _alist_upload_patched = True
+    logger.info("CAS视频扩展：已为 OpenList 上传加 .cas 回查兜底")
+
+
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，并刷新整理链与目录监控的扩展名缓存，使其把 .cas 当作视频文件识别（启用后无需重启）。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链与目录监控的扩展名缓存，并修复 CAS 秒传成功后 OpenList 上传回查误报「上传 alist 失败」的问题。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.29"
+    plugin_version = "1.30"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
@@ -168,11 +284,16 @@ class CasFileExtender(_PluginBase):
 
     _enabled: bool = False
     _keep_inner_ext: bool = True
+    _upload_fallback: bool = True
 
     def init_plugin(self, config: dict = None):
+        global _upload_fallback_enabled
         cfg = config or {}
         self._enabled = bool(cfg.get("enabled", False))
         self._keep_inner_ext = bool(cfg.get("keep_inner_ext", True))
+        self._upload_fallback = bool(cfg.get("upload_fallback", True))
+        # 兜底开关由插件启用状态共同决定：插件禁用时绝不动宿主 upload
+        _upload_fallback_enabled = self._enabled and self._upload_fallback
         if not self._enabled:
             return
         # 启用时刷新各处扩展名缓存（.cas 识别是全局行为，但受启用开关控制）
@@ -181,6 +302,9 @@ class CasFileExtender(_PluginBase):
         _refresh_native_monitor()
         # Monitor 可能晚于插件启动，后台重试直到刷新成功
         threading.Thread(target=_background_refresh_monitor, daemon=True).start()
+        # 为 OpenList 上传加 .cas 回查兜底（类级 patch，幂等）
+        if self._upload_fallback:
+            _patch_alist_upload()
 
     # ---------------- 宿主基类要求 ----------------
 
@@ -189,7 +313,7 @@ class CasFileExtender(_PluginBase):
         return self._enabled
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """仅保留启用开关与「保留视频扩展名」开关。"""
+        """启用开关、保留视频扩展名、上传回查兜底三个开关。"""
         return [
             {
                 "component": "VForm",
@@ -212,7 +336,7 @@ class CasFileExtender(_PluginBase):
                             },
                             {
                                 "component": "VCol",
-                                "props": {"cols": 12, "md": 8},
+                                "props": {"cols": 12, "md": 4},
                                 "content": [
                                     {
                                         "component": "VSwitch",
@@ -223,12 +347,26 @@ class CasFileExtender(_PluginBase):
                                         },
                                     }
                                 ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 4},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "upload_fallback",
+                                            "label": "上传回查兜底",
+                                            "hint": "CAS 秒传在网盘已成功、但 alist 回查目标 .cas 报 object not found 时，按目标路径合成文件项继续整理，避免误报「上传 alist 失败」",
+                                        },
+                                    }
+                                ],
                             }
                         ],
                     }
                 ],
             }
-        ], {"enabled": False, "keep_inner_ext": True}
+        ], {"enabled": False, "keep_inner_ext": True, "upload_fallback": True}
 
     def get_page(self) -> Optional[List[dict]]:
         """无自定义详情页（与系统命令屏蔽一致：点击卡片直接进设置）。"""

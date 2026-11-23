@@ -130,14 +130,15 @@
   },
   "CasFileExtender": {
     "name": "CAS视频扩展",
-    "description": "把 .cas 注入视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别；整理重命名时保留内层视频扩展名（.mkv.cas 不再被改成 .cas）",
+    "description": "把 .cas 注入视频白名单并刷新原生目录监控，使其把 .cas 当作视频文件识别；整理重命名时保留内层视频扩展名；修复 CAS 秒传成功后 OpenList 上传回查误报「上传 alist 失败」的问题。",
     "labels": "媒体,扩展名",
-    "version": "1.29",
+    "version": "1.30",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.30": "修复上传 .cas 秒传文件后 alist 回查目标路径报 object not found 被误判「上传 alist 失败」：参照宿主 create_folder/copy/move 的兜底，上传 PUT 成功但回查不到 .cas 时按目标路径合成文件项继续整理；新增「上传回查兜底」开关（默认开启）。",
       "v1.29": "修复 get_state 返回字典导致卡片绿点常亮的问题，改为返回布尔值。",
       "v1.28": "内层视频扩展名不再局限于固定列表：已知视频格式优先，并允许任意纯字母内层扩展名（如 mp4/mkv/avi/mov 等）自动保留，仅排除含数字的分辨率标签（如 2160p）；白名单扩充至覆盖常见格式。",
       "v1.27": "设置界面新增「保留视频扩展名」开关（默认开启）：整理重命名时是否把 .mkv.cas 的内层视频扩展名补回，可由用户关闭恢复 MoviePilot 原生行为。",
