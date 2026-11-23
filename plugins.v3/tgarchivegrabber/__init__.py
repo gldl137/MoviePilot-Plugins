@@ -107,6 +107,21 @@ def _tf(model: str, label: str, hint: str = "", placeholder: str = "",
     }
 
 
+def _ta(model: str, label: str, hint: str = "", placeholder: str = "",
+        rows: int = 4, md: int = 12) -> Dict[str, Any]:
+    """构造一个配置页多行文本框。"""
+    props: Dict[str, Any] = {"model": model, "label": label, "rows": str(rows)}
+    if hint:
+        props["hint"] = hint
+    if placeholder:
+        props["placeholder"] = placeholder
+    return {
+        "component": "VCol",
+        "props": {"cols": 12, "md": md},
+        "content": [{"component": "VTextarea", "props": props}],
+    }
+
+
 def _sw(model: str, label: str, hint: str = "", md: int = 3) -> Dict[str, Any]:
     """构造一个配置页开关。"""
     props: Dict[str, Any] = {"model": model, "label": label}
@@ -179,6 +194,13 @@ def _safe_name(name: str) -> str:
     return cleaned[:180] or "archive.bin"
 
 
+def _token_fp(token: str) -> str:
+    """Bot Token 的短指纹，用于区分不同机器人的游标/记录键，不泄露原文。"""
+    import hashlib
+
+    return hashlib.md5(str(token).encode("utf-8")).hexdigest()[:8]
+
+
 def _archive_group(filename: str) -> Tuple[str, bool, bool]:
     """
     识别压缩包的分卷信息。
@@ -223,7 +245,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.6"
+    plugin_version = "1.6.0"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -237,6 +259,7 @@ class TgArchiveGrabber(_PluginBase):
         "bot_api_base": "https://api.telegram.org",
         "chat_id": "",
         "download_dir": "/downloads/tgarchives",
+        "bots": "",
         "keywords": "",
         "exclude_keywords": "",
         "senders": "",
@@ -283,6 +306,17 @@ class TgArchiveGrabber(_PluginBase):
         self.stop_service()
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
+        # 迁移旧的单机器人配置到多机器人文本，避免旧用户升级后配置丢失；
+        # 迁移后清空旧字段，防止清空 bots 时又被回退逻辑拉回。
+        if not self._cfg_str("bots"):
+            token = self._cfg_str("bot_token")
+            chat_id = self._cfg_str("chat_id")
+            download_dir = self._cfg_str("download_dir")
+            if token and chat_id and download_dir:
+                self._config["bots"] = f"{token}|{chat_id}|{download_dir}"
+                self._config["bot_token"] = ""
+                self._config["chat_id"] = ""
+                self._config["download_dir"] = ""
         self._enabled = bool(self._config.get("enabled"))
         self._pending_parts = self.get_data("pending_parts") or {}
         if not isinstance(self._pending_parts, dict):
@@ -344,27 +378,23 @@ class TgArchiveGrabber(_PluginBase):
         cfgs = [
             _alert(
                 "把压缩包转发给机器人即可：实时接收 → 自动下载解压到「下载目录/completed」"
-                "（平铺、不保留包内文件夹）→ 按设置处理原包。只需 @BotFather 的 Bot Token。"
-                "单文件限 20MB，超限请拆分分卷或自建 Bot API Server。"
+                "（平铺、不保留包内文件夹）→ 按设置处理原包。单文件限 20MB，超限请拆分分卷"
+                "或自建 Bot API Server。"
             ),
             _row(
                 _sw("enabled", "启用插件", md=12),
             ),
-            _row(
-                _tf("bot_token", "Bot Token", "从 @BotFather 获取", "", "text", md=6),
-                _tf("chat_id", "Chat ID（必填）",
-                    "只处理这个用户转发的压缩包；给机器人发条消息后点「测试连接」可自动获取",
-                    "", "text", md=6),
+            _ta(
+                "bots", "机器人列表（每行一个机器人）",
+                "格式：BotToken|ChatID|下载目录。Chat ID 支持数字或 @用户名，# 开头为注释；"
+                "每个机器人收到的压缩包各自解压到对应目录下的 completed 子目录。",
+                "123456:ABC-DEF|123456789|/downloads/tg1",
+                rows=5,
             ),
             _row(
                 _tf("proxy", "代理地址",
                     "访问 Telegram 用；留空则用 MoviePilot 系统代理。支持 http / socks5",
                     "socks5://127.0.0.1:7890", md=12),
-            ),
-            _row(
-                _tf("download_dir", "下载目录",
-                    "容器内绝对路径；解压文件固定输出到该目录下的 completed 子目录",
-                    "/downloads/tgarchives", md=12),
             ),
             _row(
                 _sel("conflict", "同名文件", CONFLICT_ACTIONS, "", md=4),
@@ -581,22 +611,64 @@ class TgArchiveGrabber(_PluginBase):
         return tuple(x.lower() if x.startswith(".") else "." + x.lower()
                      for x in _split_list(DEFAULT_EXTS))
 
-    def _download_dir(self) -> Path:
-        """压缩包下载目录。"""
+    def _bots(self) -> List[Dict[str, str]]:
+        """解析多机器人配置，返回 [{'token','chat_id','download_dir'}, ...]。
+
+        优先读 bots 多行文本（每行「BotToken|ChatID|下载目录」，# 开头为注释）；
+        为空时回退到旧的单机器人字段 bot_token/chat_id/download_dir。
+        """
+        bots: List[Dict[str, str]] = []
+        raw = self._cfg_str("bots")
+        if raw:
+            for line in raw.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [p.strip() for p in line.split("|", 2)]
+                if len(parts) < 3:
+                    continue
+                token, chat_id, download_dir = parts[0], parts[1], parts[2]
+                if token and chat_id and download_dir:
+                    bots.append({"token": token, "chat_id": chat_id,
+                                 "download_dir": download_dir,
+                                 "fp": _token_fp(token)})
+            if bots:
+                return bots
+        # 向后兼容旧的单机器人配置
+        token = self._cfg_str("bot_token")
+        chat_id = self._cfg_str("chat_id")
+        download_dir = self._cfg_str("download_dir")
+        if token and chat_id and download_dir:
+            bots.append({"token": token, "chat_id": chat_id,
+                         "download_dir": download_dir,
+                         "fp": _token_fp(token)})
+        return bots
+
+    def _download_dir(self, item: Optional[Dict[str, Any]] = None) -> Path:
+        """下载目录：有处理项时用该项对应机器人的目录，否则用第一个机器人/旧配置。"""
+        if item and item.get("download_dir"):
+            return Path(str(item["download_dir"]))
+        bots = self._bots()
+        if bots:
+            return Path(bots[0]["download_dir"])
         return Path(self._cfg_str("download_dir") or "/downloads/tgarchives")
 
-    def _extract_dir(self) -> Path:
-        """解压输出目录：固定在下载目录下的 completed 子目录。"""
-        return self._download_dir() / "completed"
+    def _extract_dir(self, item: Optional[Dict[str, Any]] = None) -> Path:
+        """解压输出目录：固定在对应下载目录下的 completed 子目录。"""
+        return self._download_dir(item) / "completed"
 
     def _validate(self) -> Optional[str]:
         """校验运行必需的凭据与目录，返回错误说明或 None。"""
-        if not self._cfg_str("bot_token"):
-            return "需要填写 Bot Token（从 @BotFather 获取）"
-        if not self._cfg_str("chat_id"):
-            return "需要填写 Chat ID（只处理该用户转发的压缩包）"
-        if not self._cfg_str("download_dir"):
-            return "需要填写压缩包保存目录"
+        bots = self._bots()
+        if not bots:
+            return "需要至少配置一个机器人（Bot Token + Chat ID + 下载目录）"
+        for i, bot in enumerate(bots, 1):
+            if not bot.get("token"):
+                return f"机器人{i} 缺少 Bot Token"
+            if not bot.get("chat_id"):
+                return f"机器人{i} 缺少 Chat ID"
+            if not bot.get("download_dir"):
+                return f"机器人{i} 缺少下载目录"
         return None
 
     def _log(self, text: str, level: str = "info") -> None:
@@ -759,8 +831,9 @@ class TgArchiveGrabber(_PluginBase):
             if problem:
                 self._log(f"跳过扫描：{problem}", "warning")
                 return False
-            self._download_dir().mkdir(parents=True, exist_ok=True)
-            self._extract_dir().mkdir(parents=True, exist_ok=True)
+            for bot in self._bots():
+                Path(bot["download_dir"]).mkdir(parents=True, exist_ok=True)
+                (Path(bot["download_dir"]) / "completed").mkdir(parents=True, exist_ok=True)
             cursors = self._load_cursors()
             processed = self._load_processed()
             failures = self._load_failures()
@@ -785,7 +858,8 @@ class TgArchiveGrabber(_PluginBase):
                     self._notify(
                         f"{self.plugin_name} 扫描完成",
                         f"成功 {stats['ok']} 个，失败 {stats['fail']} 个，"
-                        f"输出目录：{self._extract_dir()}",
+                        f"输出目录：{'、'.join(str(Path(b['download_dir']) / 'completed')
+                                          for b in self._bots())}",
                     )
             return True
         finally:
@@ -827,12 +901,12 @@ class TgArchiveGrabber(_PluginBase):
     # Telegram 接入：Bot API
     # ------------------------------------------------------------------
     def _bot_api(self, method: str, params: Optional[Dict[str, Any]] = None,
-                 timeout: int = 30) -> Any:
-        """调用 Telegram Bot API 并返回 result 字段。"""
+                 timeout: int = 30, token: Optional[str] = None) -> Any:
+        """调用 Telegram Bot API 并返回 result 字段；token 缺省回退旧单机器人字段。"""
         import requests
 
         base = (self._cfg_str("bot_api_base") or "https://api.telegram.org").rstrip("/")
-        token = self._cfg_str("bot_token")
+        token = token or self._cfg_str("bot_token")
         response = requests.get(
             f"{base}/bot{token}/{method}", params=params or {}, timeout=timeout,
             proxies=self._requests_proxies(),
@@ -843,31 +917,33 @@ class TgArchiveGrabber(_PluginBase):
             raise RuntimeError(f"Bot API {method} 返回错误：{data.get('description') or data}")
         return data.get("result")
 
-    def _bot_reply(self, chat_id: Any, text: str) -> None:
+    def _bot_reply(self, chat_id: Any, text: str, token: Optional[str] = None) -> None:
         """给转发者回复处理结果；发送失败只记日志，不影响主流程。"""
         if not chat_id:
             return
         try:
             # 不设置 parse_mode，纯文本发送，避免文件名里的 _ * [ 等字符导致解析失败
-            self._bot_api("sendMessage", {"chat_id": chat_id, "text": text}, timeout=15)
+            self._bot_api("sendMessage", {"chat_id": chat_id, "text": text},
+                          timeout=15, token=token)
         except Exception as err:  # noqa: BLE001
             self._log(f"回复 Telegram 消息失败：{err}", "warning")
 
-    def _bot_chat_matches(self, post: Dict[str, Any]) -> bool:
+    def _bot_chat_matches(self, post: Dict[str, Any], chat_id: str) -> bool:
         """只处理指定 Chat ID 用户私聊转发的压缩包。"""
         chat = post.get("chat") or {}
         if str(chat.get("type") or "").lower() != "private":
             return False
-        allowed = self._cfg_str("chat_id").strip().lstrip("@").lower()
+        allowed = str(chat_id).strip().lstrip("@").lower()
         identifiers = {str(chat.get("id") or ""),
                        str(chat.get("username") or "").lower().lstrip("@")}
         return allowed in identifiers
 
-    def _build_bot_item(self, update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """把 Bot API update 转换成统一的待处理项。"""
+    def _build_bot_item(self, update: Dict[str, Any],
+                        bot: Dict[str, str]) -> Optional[Dict[str, Any]]:
+        """把 Bot API update 转换成统一的待处理项（绑定对应机器人的 token 与目录）。"""
         post = (update.get("channel_post") or update.get("message")
                 or update.get("edited_channel_post"))
-        if not isinstance(post, dict) or not self._bot_chat_matches(post):
+        if not isinstance(post, dict) or not self._bot_chat_matches(post, bot["chat_id"]):
             return None
         doc = post.get("document")
         if not isinstance(doc, dict):
@@ -889,13 +965,13 @@ class TgArchiveGrabber(_PluginBase):
                 sender_tokens.add("@" + str(info["username"]).lower())
         update_id = int(update.get("update_id") or 0)
         base = (self._cfg_str("bot_api_base") or "https://api.telegram.org").rstrip("/")
-        token = self._cfg_str("bot_token")
+        token = bot["token"]
 
         def download(target: Path, _file_id: str = str(file_id)) -> None:
             import requests
 
             try:
-                info = self._bot_api("getFile", {"file_id": _file_id})
+                info = self._bot_api("getFile", {"file_id": _file_id}, token=token)
             except Exception as err:  # noqa: BLE001
                 raise RuntimeError(
                     f"getFile 失败：{err}（官方 Bot API 限制单文件 20MB，"
@@ -916,7 +992,7 @@ class TgArchiveGrabber(_PluginBase):
                             handle.write(chunk)
 
         return {
-            "key": f"bot:{update_id}",
+            "key": f"bot:{bot['fp']}:{update_id}",
             "sort_id": update_id,
             "chat": chat,
             "msg_id": str(post.get("message_id") or update_id),
@@ -928,85 +1004,108 @@ class TgArchiveGrabber(_PluginBase):
             "sender_tokens": sender_tokens,
             "reply_chat_id": reply_chat_id,
             "download": download,
+            "token": token,
+            "chat_id": bot["chat_id"],
+            "download_dir": bot["download_dir"],
         }
 
     def _scan_bot(self, cursors: Dict[str, int], processed: set,
                   failures: Dict[str, int], stats: Dict[str, int]) -> Dict[str, int]:
-        """用 Bot API getUpdates 拉取新消息（Bot 需入群并关闭隐私模式）。"""
+        """遍历每个机器人，用 Bot API getUpdates 拉取新消息（各机器人独立游标）。"""
         import json
 
-        ckey = "bot:updates"
-        cursor = cursors.get(ckey)
-        if cursor is None:
-            try:
-                last = self._bot_api("getUpdates", {"offset": -1, "limit": 1}) or []
-                latest_id = int(last[-1]["update_id"]) if last else 0
-            except Exception as err:  # noqa: BLE001
-                self._log(f"Bot 初始化游标失败：{err}", "warning")
-                latest_id = 0
-            backfill_count = self._cfg_int("backfill_count", 20, 0)
-            cursor = (max(0, latest_id - backfill_count)
-                      if self._cfg_bool("backfill") else latest_id)
-            self._log(f"Bot 初始化游标：{cursor}（最新 update {latest_id}）")
-        params = {
-            "offset": cursor + 1,
-            "limit": 100,
-            "timeout": LONG_POLL_TIMEOUT,
-            "allowed_updates": json.dumps(["message"]),
-        }
-        # 长轮询：无消息时 Telegram 会挂住连接直到超时，有消息立刻返回
-        updates = self._bot_api("getUpdates", params,
-                                timeout=LONG_POLL_TIMEOUT + 10) or []
         max_round = self._cfg_int("max_files_per_round", 20, 1)
-        for update in updates:
-            if self._stop_event.is_set():
+        for bot in self._bots():
+            if self._stop_event.is_set() or stats["handled"] >= max_round:
                 break
-            item = self._build_bot_item(update)
-            sort_id = int(update.get("update_id") or 0)
-            if item is None:
-                cursor = max(cursor, sort_id)
+            fp = bot["fp"]
+            token = bot["token"]
+            ckey = f"bot:{fp}:updates"
+            cursor = cursors.get(ckey)
+            if cursor is None:
+                try:
+                    last = (self._bot_api("getUpdates", {"offset": -1, "limit": 1},
+                                          token=token) or [])
+                    latest_id = int(last[-1]["update_id"]) if last else 0
+                except Exception as err:  # noqa: BLE001
+                    self._log(f"Bot {fp} 初始化游标失败：{err}", "warning")
+                    latest_id = 0
+                backfill_count = self._cfg_int("backfill_count", 20, 0)
+                cursor = (max(0, latest_id - backfill_count)
+                          if self._cfg_bool("backfill") else latest_id)
+                self._log(f"Bot {fp} 初始化游标：{cursor}（最新 update {latest_id}）")
+            params = {
+                "offset": cursor + 1,
+                "limit": 100,
+                "timeout": LONG_POLL_TIMEOUT,
+                "allowed_updates": json.dumps(["message"]),
+            }
+            # 长轮询：无消息时 Telegram 会挂住连接直到超时，有消息立刻返回
+            try:
+                updates = self._bot_api("getUpdates", params,
+                                        timeout=LONG_POLL_TIMEOUT + 10,
+                                        token=token) or []
+            except Exception as err:  # noqa: BLE001
+                self._log(f"Bot {fp} 拉取更新失败：{err}", "warning")
+                cursors[ckey] = cursor
                 continue
-            if not self._match_archive(item):
-                cursor = max(cursor, sort_id)
-                stats["skipped"] += 1
-                continue
-            if stats["handled"] >= max_round:
-                self._log(f"已达单轮处理上限 {max_round}，剩余更新留到下一轮")
-                break
-            stats["handled"] += 1
-            if self._process_item(item, processed, failures, stats):
-                cursor = max(cursor, sort_id)
-            else:
-                self._log("该消息处理失败，保留游标下轮重试，继续处理后续更新")
-        cursors[ckey] = cursor
-        if updates:
-            self._log(f"Bot 本轮拉取 {len(updates)} 条更新，游标={cursor}")
+            for update in updates:
+                if self._stop_event.is_set():
+                    break
+                item = self._build_bot_item(update, bot)
+                sort_id = int(update.get("update_id") or 0)
+                if item is None:
+                    cursor = max(cursor, sort_id)
+                    continue
+                if not self._match_archive(item):
+                    cursor = max(cursor, sort_id)
+                    stats["skipped"] += 1
+                    continue
+                if stats["handled"] >= max_round:
+                    self._log(f"已达单轮处理上限 {max_round}，剩余更新留到下一轮")
+                    break
+                stats["handled"] += 1
+                if self._process_item(item, processed, failures, stats):
+                    cursor = max(cursor, sort_id)
+                else:
+                    self._log("该消息处理失败，保留游标下轮重试，继续处理后续更新")
+            cursors[ckey] = cursor
+            if updates:
+                self._log(f"Bot {fp} 本轮拉取 {len(updates)} 条更新，游标={cursor}")
         return cursors
 
     def _test_connection(self) -> Dict[str, Any]:
-        """测试 Bot Token 是否有效，结果写入详情页日志。"""
+        """测试每个机器人连接是否有效，结果写入详情页日志。"""
         details: List[str] = []
+        bots = self._bots()
+        if not bots:
+            return self._result(
+                False, "尚未配置任何机器人",
+                details=["请先在配置页填写机器人（BotToken|ChatID|下载目录，每行一个）"])
         try:
-            me = self._bot_api("getMe", {}) or {}
-            details.append(f"Bot：@{me.get('username', '未知')} ({me.get('first_name', '')})")
-            details.append("连接正常。把群里的压缩包转发给这个机器人即可自动下载解压。")
-            # 列出最近私聊的 Chat ID，方便用户填写白名单
-            try:
-                updates = self._bot_api("getUpdates", {"limit": 100}) or []
-                for update in updates:
-                    post = update.get("message") or {}
-                    chat = post.get("chat") or {}
-                    if str(chat.get("type") or "").lower() == "private":
-                        details.append(
-                            f"你的 Chat ID：{chat.get('id')} "
-                            f"(@{chat.get('username') or '无用户名'}) —— 复制这个数字填入配置"
-                        )
-                        break
-            except Exception:  # noqa: BLE001 - 拉取失败不影响连接测试
-                pass
-            return self._result(True, "Bot 连接测试完成", details=details)
+            for i, bot in enumerate(bots, 1):
+                token = bot["token"]
+                me = self._bot_api("getMe", {}, token=token) or {}
+                details.append(
+                    f"机器人{i}：@{me.get('username', '未知')} ({me.get('first_name', '')}) 连接正常"
+                )
+                # 列出最近私聊的 Chat ID，方便用户填写白名单
+                try:
+                    updates = self._bot_api("getUpdates", {"limit": 100}, token=token) or []
+                    for update in updates:
+                        post = update.get("message") or {}
+                        chat = post.get("chat") or {}
+                        if str(chat.get("type") or "").lower() == "private":
+                            details.append(
+                                f"  你的 Chat ID：{chat.get('id')} "
+                                f"(@{chat.get('username') or '无用户名'}) —— 复制这个数字填入配置"
+                            )
+                            break
+                except Exception:  # noqa: BLE001 - 拉取失败不影响连接测试
+                    pass
+            return self._result(True, "机器人连接测试完成", details=details)
         except Exception as err:  # noqa: BLE001
-            return self._result(False, f"Bot 连接失败：{err}", details=details)
+            return self._result(False, f"机器人连接失败：{err}", details=details)
 
     # ------------------------------------------------------------------
     # 消息过滤与处理
@@ -1028,7 +1127,7 @@ class TgArchiveGrabber(_PluginBase):
             return True
         filename = _safe_name(str(item["filename"]))
         stem, is_part, is_main = _archive_group(filename)
-        target_dir = self._download_dir()
+        target_dir = self._download_dir(item)
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
             if not is_part:
@@ -1051,7 +1150,8 @@ class TgArchiveGrabber(_PluginBase):
                 self._log(f"下载 {item.get('chat')}/{filename}（{_human_size(item.get('size'))}）")
                 self._bot_reply(
                     item.get("reply_chat_id"),
-                    f"📥 已收到 {filename}（{_human_size(item.get('size'))}），开始处理…"
+                    f"📥 已收到 {filename}（{_human_size(item.get('size'))}），开始处理…",
+                    token=item.get("token"),
                 )
                 item["download"](partial)
                 if not partial.exists() or partial.stat().st_size == 0:
@@ -1076,7 +1176,8 @@ class TgArchiveGrabber(_PluginBase):
             self._bot_reply(
                 item.get("reply_chat_id"),
                 f"⚠️ {filename} 处理失败：{err}"
-                + (f"（第 {count}/{DEFAULT_RETRY} 次，将自动重试）" if count < DEFAULT_RETRY else "")
+                + (f"（第 {count}/{DEFAULT_RETRY} 次，将自动重试）" if count < DEFAULT_RETRY else ""),
+                token=item.get("token"),
             )
             try:
                 partial = target_dir / (filename + ".part")
@@ -1087,7 +1188,8 @@ class TgArchiveGrabber(_PluginBase):
             if count >= DEFAULT_RETRY:
                 self._bot_reply(
                     item.get("reply_chat_id"),
-                    f"❌ {filename} 重试 {count} 次仍失败，已放弃：{err}"
+                    f"❌ {filename} 重试 {count} 次仍失败，已放弃：{err}",
+                    token=item.get("token"),
                 )
                 self._append_history({
                     "key": key, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1124,15 +1226,21 @@ class TgArchiveGrabber(_PluginBase):
             self._extract_one(archive, stem, item)
             return
         now = time.time()
-        entry = self._pending_parts.get(stem) or {
+        # 不同机器人的同名分卷用 token 指纹区分，避免互相串组
+        pkey = f"{_token_fp(item.get('token') or '')}:{stem}"
+        entry = self._pending_parts.get(pkey) or {
             "dir": str(archive.parent),
             "main": "",
             "ts": now,
             "chat": item.get("chat", ""),
             "reply_chat_id": item.get("reply_chat_id"),
+            "token": item.get("token"),
+            "stem": stem,
         }
         entry["dir"] = str(archive.parent)
         entry["chat"] = item.get("chat", entry.get("chat", ""))
+        entry["token"] = item.get("token")
+        entry["stem"] = stem
         if not entry.get("reply_chat_id"):
             entry["reply_chat_id"] = item.get("reply_chat_id")
         entry["ts"] = float(entry.get("ts") or now)
@@ -1144,7 +1252,7 @@ class TgArchiveGrabber(_PluginBase):
             if main:
                 entry["main"] = str(main)
                 self._log(f"分卷组 {stem} 找到已下载的主卷 {main.name}")
-        self._pending_parts[stem] = entry
+        self._pending_parts[pkey] = entry
         self.save_data("pending_parts", self._pending_parts)
         group_prefix = _safe_name(stem).lower() + "."
         parts = [p.name for p in Path(entry["dir"]).iterdir()
@@ -1156,7 +1264,8 @@ class TgArchiveGrabber(_PluginBase):
         self._bot_reply(
             item.get("reply_chat_id"),
             f"📥 已收到分卷 {archive.name}（同组共 {len(parts)} 个），"
-            f"等待其余分卷到齐后统一解压…"
+            f"等待其余分卷到齐后统一解压…",
+            token=item.get("token"),
         )
 
     def _flush_pending_parts(self) -> None:
@@ -1166,19 +1275,21 @@ class TgArchiveGrabber(_PluginBase):
         wait = self._cfg_int("parts_wait_seconds", 120, 0)
         now = time.time()
         changed = False
-        for stem, entry in list(self._pending_parts.items()):
+        for pkey, entry in list(self._pending_parts.items()):
             if not isinstance(entry, dict):
-                self._pending_parts.pop(stem, None)
+                self._pending_parts.pop(pkey, None)
                 changed = True
                 continue
+            stem = str(entry.get("stem") or pkey)
             if not entry.get("main"):
                 if now - float(entry.get("ts") or now) > 3600:
                     self._log(f"分卷组 {stem} 始终未收到主卷，已丢弃待处理记录", "warning")
                     self._bot_reply(
                         entry.get("reply_chat_id"),
-                        f"⏰ 分卷包 {stem} 等待 1 小时仍未收到主卷，已取消"
+                        f"⏰ 分卷包 {stem} 等待 1 小时仍未收到主卷，已取消",
+                        token=entry.get("token"),
                     )
-                    self._pending_parts.pop(stem, None)
+                    self._pending_parts.pop(pkey, None)
                     changed = True
                 continue
             if now - float(entry.get("ts") or now) < wait:
@@ -1186,15 +1297,17 @@ class TgArchiveGrabber(_PluginBase):
             main = Path(str(entry["main"]))
             parts_dir = Path(str(entry.get("dir") or main.parent))
             if not main.exists():
-                self._pending_parts.pop(stem, None)
+                self._pending_parts.pop(pkey, None)
                 changed = True
                 continue
             item = {
-                "key": f"parts:{stem}",
+                "key": f"parts:{pkey}",
                 "chat": entry.get("chat", ""),
                 "reply_chat_id": entry.get("reply_chat_id"),
                 "filename": main.name,
                 "size": main.stat().st_size,
+                "token": entry.get("token"),
+                "download_dir": entry.get("dir"),
             }
             try:
                 self._log(f"分卷组 {stem} 等待结束，开始解压主卷 {main.name}")
@@ -1212,7 +1325,8 @@ class TgArchiveGrabber(_PluginBase):
                 self._log(f"分卷组 {stem} 解压失败：{err}", "error")
                 self._bot_reply(
                     item.get("reply_chat_id"),
-                    f"❌ 分卷包 {main.name} 解压失败：{err}"
+                    f"❌ 分卷包 {main.name} 解压失败：{err}",
+                    token=item.get("token"),
                 )
                 self._append_history({
                     "key": item["key"], "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1221,14 +1335,14 @@ class TgArchiveGrabber(_PluginBase):
                     "message": f"分卷解压失败：{err}",
                 })
             finally:
-                self._pending_parts.pop(stem, None)
+                self._pending_parts.pop(pkey, None)
                 changed = True
         if changed:
             self.save_data("pending_parts", self._pending_parts)
 
     def _move_cas(self, archive: Path, item: Dict[str, Any]) -> None:
         """.cas 秒传文件不解压，直接移动到「下载目录/completed」。"""
-        final = self._extract_dir()
+        final = self._extract_dir(item)
         final.mkdir(parents=True, exist_ok=True)
         target = final / archive.name
         conflict = self._cfg_str("conflict", "skip") or "skip"
@@ -1237,7 +1351,8 @@ class TgArchiveGrabber(_PluginBase):
             self._record(item, "成功", f"completed 已存在同名文件，跳过 → {final}")
             self._bot_reply(
                 item.get("reply_chat_id"),
-                f"⏭️ {archive.name} completed 已存在同名文件，已跳过"
+                f"⏭️ {archive.name} completed 已存在同名文件，已跳过",
+                token=item.get("token"),
             )
             if self._cfg_bool("delete_archive", True):
                 try:
@@ -1256,15 +1371,16 @@ class TgArchiveGrabber(_PluginBase):
         self._record(item, "成功", f"已移动到 completed → {final}")
         self._bot_reply(
             item.get("reply_chat_id"),
-            f"✅ {archive.name} 已移动到 {final}"
+            f"✅ {archive.name} 已移动到 {final}",
+            token=item.get("token"),
         )
 
     def _extract_one(self, archive: Path, stem: str, item: Dict[str, Any]) -> None:
         """解压到「下载目录/completed」：所有文件平铺、不建子目录；成功后删除压缩包。"""
-        final = self._extract_dir()
+        final = self._extract_dir(item)
         final.mkdir(parents=True, exist_ok=True)
         # 临时目录放在下载目录而非 completed，避免临时文件混入结果目录
-        temp = self._download_dir() / f".tg_tmp_{_safe_name(stem)}_{int(time.time() * 1000)}"
+        temp = self._download_dir(item) / f".tg_tmp_{_safe_name(stem)}_{int(time.time() * 1000)}"
         temp.mkdir(parents=True, exist_ok=True)
         try:
             count = self._extract_archive(archive, temp, self._cfg_str("extract_password"))
@@ -1285,7 +1401,8 @@ class TgArchiveGrabber(_PluginBase):
             self._bot_reply(
                 item.get("reply_chat_id"),
                 f"✅ {archive.name} 处理完成：解压 {written} 个文件 → {final}"
-                + (f"（跳过同名 {skipped} 个）" if skipped else "")
+                + (f"（跳过同名 {skipped} 个）" if skipped else ""),
+                token=item.get("token"),
             )
             if self._cfg_bool("delete_archive", True):
                 try:
