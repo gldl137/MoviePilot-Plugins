@@ -174,7 +174,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.1"
+    plugin_version = "1.2.2"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -216,6 +216,13 @@ class CasRestore(_PluginBase):
         self.stop_service()
         self._stop_event.clear()
         self._config = {**self._default_config, **(config or {})}
+        # 兼容 v1.2.0 下拉 bug 存入的脏数据（整个选项对象），取其 value 字段
+        for key in ("account_id", "family_id"):
+            val = self._config.get(key)
+            if isinstance(val, dict):
+                self._config[key] = str(val.get("value") or "")
+            elif val is not None:
+                self._config[key] = str(val).strip()
         self._enabled = bool(self._config.get("enabled"))
         mode = "inotify 事件监控" if InotifyTrees is not None else "轮询兜底"
         self._log(f"初始化完成：启用={self._enabled}，监控方式={mode}，"
@@ -275,8 +282,10 @@ class CasRestore(_PluginBase):
                         if not account_err else f"拉取失败：{account_err}")
 
         family_items: List[Dict[str, Any]] = []
-        family_hint = "先选择账号后再拉取家庭列表"
-        if saved_account:
+        family_hint = ("恢复位置为「个人空间」时无需选择家庭"
+                       if self._cfg_str("scope") != "family"
+                       else "先选择账号后再拉取家庭列表")
+        if saved_account and self._cfg_str("scope") == "family":
             families, family_err = self._fetch_families(saved_account)
             family_items = families
             saved_family = self._cfg_str("family_id")
