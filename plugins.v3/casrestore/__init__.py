@@ -68,6 +68,11 @@ except ImportError:
     except ImportError:
         NotificationType = None  # type: ignore
 
+try:
+    from app.sdk.config import settings
+except ImportError:
+    settings = None  # type: ignore
+
 __all__ = ["CasRestore"]
 
 LOG_TAG = "[CAS恢复]"
@@ -191,7 +196,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -362,10 +367,14 @@ class CasRestore(_PluginBase):
     # 详情页
     # ------------------------------------------------------------------
     def get_page(self) -> List[dict]:
-        """展示运行状态与恢复记录列表。"""
+        """展示恢复记录列表（带操作按钮，参考音乐整理插件的交互式详情页）。"""
         records = self.get_data("restore_records") or []
         if not isinstance(records, list):
             records = []
+        success_count = sum(1 for r in records if isinstance(r, dict)
+                            and r.get("status") == "成功")
+        failed_count = len(records) - success_count
+
         rows: List[Dict[str, Any]] = []
         for it in records[:100]:
             status = str(it.get("status") or "")
@@ -388,6 +397,30 @@ class CasRestore(_PluginBase):
             rows = [{"component": "tr", "content": [
                 {"component": "td", "props": {"colspan": 5, "class": "text-center"},
                  "text": "暂无恢复记录（监控目录出现 .cas 后自动恢复，会记录在此）"}]}]
+
+        apikey = getattr(settings, "API_TOKEN", "") if settings else ""
+        buttons = [
+            {"component": "VBtn",
+             "props": {"color": "primary", "size": "small", "variant": "outlined"},
+             "events": {"click": {"type": "request", "api": "plugin/CasRestore/scan",
+                                  "method": "POST", "params": {"apikey": apikey},
+                                  "success": "扫描已触发", "fail": "触发失败"}},
+             "text": "立即扫描"},
+            {"component": "VBtn",
+             "props": {"color": "info", "size": "small", "variant": "outlined"},
+             "events": {"click": {"type": "request", "api": "plugin/CasRestore/test",
+                                  "method": "POST", "params": {"apikey": apikey},
+                                  "success": "测试已执行", "fail": "测试失败"}},
+             "text": "测试连接"},
+            {"component": "VBtn",
+             "props": {"color": "error", "size": "small", "variant": "outlined"},
+             "events": {"click": {"type": "request",
+                                  "api": "plugin/CasRestore/clear_records",
+                                  "method": "POST", "params": {"apikey": apikey},
+                                  "success": "清空成功", "fail": "清空失败"}},
+             "text": "清空记录"},
+        ]
+
         return [
             {"component": "VRow", "content": [
                 {"component": "VCol", "props": {"cols": 12}, "content": [
@@ -404,23 +437,37 @@ class CasRestore(_PluginBase):
             ]},
             {"component": "VRow", "content": [
                 {"component": "VCol", "props": {"cols": 12}, "content": [
-                    {"component": "VCard", "props": {"variant": "outlined"}, "content": [
-                        {"component": "VCardTitle", "props": {"class": "text-subtitle-1"},
-                         "text": f"恢复记录（共 {len(records)} 条，最多保留 200 条，最新在上）"},
-                        {"component": "VTable", "props": {"density": "compact"}, "content": [
-                            {"component": "thead", "content": [
-                                {"component": "tr", "content": [
-                                    {"component": "th",
-                                     "props": {"width": "170px", "class": "text-no-wrap"},
-                                     "text": "时间"},
-                                    {"component": "th", "text": "本地文件"},
-                                    {"component": "th", "text": "恢复到网盘"},
-                                    {"component": "th", "props": {"width": "90px"},
-                                     "text": "状态"},
-                                    {"component": "th", "text": "说明"},
+                    {"component": "VCard", "content": [
+                        {"component": "VCardTitle",
+                         "props": {"class": "d-flex align-center justify-space-between"},
+                         "content": [
+                            {"component": "div",
+                             "text": f"恢复记录（共 {len(records)} 条  成功 {success_count} 条  "
+                                     f"失败 {failed_count} 条）"},
+                            {"component": "div",
+                             "props": {"class": "d-flex align-center gap-2"},
+                             "content": buttons},
+                        ]},
+                        {"component": "VCardText", "content": [
+                            {"component": "VTable",
+                             "props": {"density": "comfortable", "hover": True,
+                                       "fixed-header": True, "height": "600px"},
+                             "content": [
+                                {"component": "thead", "content": [
+                                    {"component": "tr", "content": [
+                                        {"component": "th",
+                                         "props": {"width": "170px",
+                                                  "class": "text-no-wrap"},
+                                         "text": "时间"},
+                                        {"component": "th", "text": "本地文件"},
+                                        {"component": "th", "text": "恢复到网盘"},
+                                        {"component": "th",
+                                         "props": {"width": "90px"}, "text": "状态"},
+                                        {"component": "th", "text": "说明"},
+                                    ]},
                                 ]},
-                            ]},
-                            {"component": "tbody", "content": rows},
+                                {"component": "tbody", "content": rows},
+                             ]},
                         ]},
                     ]},
                 ]},
@@ -433,12 +480,23 @@ class CasRestore(_PluginBase):
     def get_api(self) -> List[Dict[str, Any]]:
         return [
             {"path": "/status", "endpoint": self.api_status, "methods": ["GET"],
-             "auth": "bear", "summary": "运行状态与最近日志"},
+             "auth": "bear", "summary": "运行状态"},
             {"path": "/scan", "endpoint": self.api_scan, "methods": ["POST"],
-             "auth": "bear", "summary": "唤醒守护线程立即扫描一轮"},
+             "auth": "bear", "summary": "立即扫描一轮存量 .cas"},
             {"path": "/test", "endpoint": self.api_test, "methods": ["POST"],
              "auth": "bear", "summary": "测试 CAS 服务连接与鉴权"},
+            {"path": "/clear_records", "endpoint": self.api_clear_records,
+             "methods": ["POST"], "auth": "bear", "summary": "清空恢复记录"},
         ]
+
+    def api_clear_records(self) -> Dict[str, Any]:
+        """清空恢复记录列表。"""
+        try:
+            self.save_data("restore_records", [])
+            self._log("已清空恢复记录")
+            return {"success": True, "message": "已清空恢复记录"}
+        except Exception as err:  # noqa: BLE001
+            return {"success": False, "message": str(err)}
 
     def api_status(self) -> Dict[str, Any]:
         """返回运行状态与最近日志。"""
