@@ -133,6 +133,19 @@ def _sel(model: str, label: str, items: Dict[str, str],
     }
 
 
+def _sel_list(model: str, label: str, items: List[Dict[str, Any]],
+              hint: str = "", md: int = 4) -> Dict[str, Any]:
+    """构造一个下拉框（选项为动态拉取的 {label, value} 列表）。"""
+    props: Dict[str, Any] = {"model": model, "label": label, "items": items}
+    if hint:
+        props["hint"] = hint
+    return {
+        "component": "VCol",
+        "props": {"cols": 12, "md": md},
+        "content": [{"component": "VSelect", "props": props}],
+    }
+
+
 def _row(*cols: Dict[str, Any]) -> Dict[str, Any]:
     """构造配置页的一行。"""
     return {"component": "VRow", "content": list(cols)}
@@ -158,7 +171,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -247,13 +260,35 @@ class CasRestore(_PluginBase):
     # 配置页
     # ------------------------------------------------------------------
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """返回 Vuetify 配置页。"""
+        """返回 Vuetify 配置页；账号/家庭选项实时从 CAS 服务拉取供直接选择。"""
+        accounts, account_err = self._fetch_accounts()
+        account_items: List[Dict[str, Any]] = accounts
+        # 当前已保存的值不在选项里时也展示出来，避免打开配置页看着是空的
+        saved_account = self._cfg_str("account_id")
+        if saved_account and all(i["value"] != saved_account for i in account_items):
+            account_items = account_items + [{"label": f"ID {saved_account}（已保存）",
+                                              "value": saved_account}]
+        account_hint = (f"共 {len(accounts)} 个账号（实时读取 CAS 服务）"
+                        if not account_err else f"拉取失败：{account_err}")
+
+        family_items: List[Dict[str, Any]] = []
+        family_hint = "先选择账号后再拉取家庭列表"
+        if saved_account:
+            families, family_err = self._fetch_families(saved_account)
+            family_items = families
+            saved_family = self._cfg_str("family_id")
+            if saved_family and all(i["value"] != saved_family for i in family_items):
+                family_items = family_items + [{"label": f"ID {saved_family}（已保存）",
+                                                "value": saved_family}]
+            family_hint = (f"共 {len(families)} 个家庭（实时读取 CAS 服务）"
+                           if not family_err else f"拉取失败：{family_err}")
+
         cfgs = [
             _alert(
                 "监控目录有新 .cas 文件写入完成时自动恢复（inotify 事件驱动，不轮询），"
                 "调用 CAS 服务接口直接在网盘恢复源文件。CAS 服务地址与 API Key 直接读取"
-                "「CAS助手」插件配置，本插件无需填写。网盘目录自动跟随本地子目录结构，"
-                "恢复成功后删除 .cas 并清空本地空目录。每次请求只提交一条 .cas。"
+                "「CAS助手」插件配置；账号/家庭直接从 CAS 服务下拉选择。网盘目录自动跟随"
+                "本地子目录结构，恢复成功后删除 .cas 并清空本地空目录。每次请求只提交一条 .cas。"
             ),
             _row(
                 _sw("enabled", "启用插件", md=12),
@@ -264,13 +299,15 @@ class CasRestore(_PluginBase):
                     "/downloads/tgcas", md=12),
             ),
             _row(
-                _tf("account_id", "账号 ID", "CAS 请求体 accountId", "3", "number", md=4),
-                _sel("scope", "空间类型", SCOPE_ACTIONS, "", md=4),
-                _tf("family_id", "家庭 ID", "空间类型为家庭空间时必填", "575994414", md=4),
+                _sel_list("account_id", "恢复账号", account_items,
+                          hint=account_hint, md=4),
+                _sel("scope", "恢复位置", SCOPE_ACTIONS, "", md=4),
+                _sel_list("family_id", "家庭列表", family_items,
+                          hint=family_hint, md=4),
             ),
             _row(
                 _tf("target_folder_path", "目标文件夹路径",
-                    "网盘基路径；本地子目录会自动拼接到其后（如 家庭1/测试）",
+                    "网盘基路径（手动输入）；本地子目录会自动拼接到其后（如 家庭1/测试）",
                     "家庭1/测试", md=12),
             ),
             _row(
@@ -451,6 +488,76 @@ class CasRestore(_PluginBase):
                 self._log(f"读取 CAS助手 配置失败：{err}", "warning")
         host = self._normalize_host(host)
         return host, api_key, source
+
+    def _fetch_accounts(self, timeout: int = 6) -> Tuple[List[Dict[str, Any]], str]:
+        """
+        从 CAS 服务拉取账号列表（GET /api/accounts）。
+
+        返回 (items, error)：items 为 [{label, value}]；与源项目一致，
+        只列个人账号（过滤掉带 familyId 的项）。
+        """
+        host, api_key, _ = self._resolve_cas()
+        if not host:
+            return [], "未获取到 CAS 服务地址（请先配置 CAS助手 插件）"
+        if requests is None:
+            return [], "当前环境缺少 requests 库"
+        try:
+            session = self._new_session()
+            headers = {"x-api-key": api_key} if api_key else {}
+            resp = session.get(f"{host}/api/accounts", headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("success"):
+                return [], str(data.get("message") or data.get("error") or "接口返回失败")
+            items: List[Dict[str, Any]] = []
+            for acc in data.get("data") or []:
+                if not isinstance(acc, dict) or acc.get("familyId"):
+                    continue  # 与源项目一致：秒传恢复只列个人账号
+                username = str(acc.get("username") or acc.get("id") or "")
+                alias = str(acc.get("alias") or "")
+                label = f"{username}（{alias}）" if alias else username
+                items.append({"label": label, "value": str(acc.get("id"))})
+            if not items:
+                return [], "CAS 服务未返回个人账号"
+            return items, ""
+        except Exception as err:  # noqa: BLE001
+            return [], str(err)
+
+    def _fetch_families(self, account_id: str,
+                        timeout: int = 6) -> Tuple[List[Dict[str, Any]], str]:
+        """
+        从 CAS 服务拉取指定账号的家庭列表（GET /api/accounts/{id}/families）。
+
+        返回 (items, error)：items 为 [{label, value}]，value 为 familyId。
+        """
+        host, api_key, _ = self._resolve_cas()
+        if not host:
+            return [], "未获取到 CAS 服务地址（请先配置 CAS助手 插件）"
+        if requests is None:
+            return [], "当前环境缺少 requests 库"
+        try:
+            session = self._new_session()
+            headers = {"x-api-key": api_key} if api_key else {}
+            resp = session.get(f"{host}/api/accounts/{account_id}/families",
+                               headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            if not data.get("success"):
+                return [], str(data.get("message") or data.get("error") or "接口返回失败")
+            items: List[Dict[str, Any]] = []
+            for fam in data.get("data") or []:
+                if not isinstance(fam, dict):
+                    continue
+                fid = str(fam.get("familyId") or fam.get("id") or "")
+                remark = str(fam.get("remarkName") or fam.get("name") or "")
+                label = f"{remark}（{fid}）" if remark else fid
+                if fid:
+                    items.append({"label": label, "value": fid})
+            if not items:
+                return [], "该账号未获取到可用家庭"
+            return items, ""
+        except Exception as err:  # noqa: BLE001
+            return [], str(err)
 
     @staticmethod
     def _normalize_host(host: str) -> str:
