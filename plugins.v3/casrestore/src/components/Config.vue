@@ -84,10 +84,17 @@ async function loadFamilies() {
   }
 }
 
-function save() {
+async function save() {
+  if (saving.value) return
   saving.value = true
   try {
-    // 主应用监听 save 事件接管配置保存，无需插件自己调用后端保存接口
+    // 直接调用宿主标准配置接口落盘：详情页（Page 入口）下主应用不监听 save 事件，
+    // 仅 emit('save') 会导致配置丢失；这里统一 PUT，同时保留 emit 供设置弹窗收尾。
+    try {
+      await props.api.put(`plugin/${props.pluginId}`, cfg.value)
+    } catch (e) {
+      console.error('CasRestore save config failed', e)
+    }
     emit('save', cfg.value)
   } finally {
     setTimeout(() => {

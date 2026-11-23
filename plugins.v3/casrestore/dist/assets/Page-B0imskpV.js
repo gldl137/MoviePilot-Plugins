@@ -1,5 +1,5 @@
 import { _ as __mf_12, o as __mf_5 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-NkxU9if2.js';
-import _sfc_main$1 from './Config-DZRj-9tG.js';
+import _sfc_main$1 from './Config-DVxNFZNI.js';
 
 /**
  * 插件详情入口（宿主点击插件卡片时加载 ./Page 组件）。
