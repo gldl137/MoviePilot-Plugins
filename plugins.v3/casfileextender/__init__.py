@@ -429,6 +429,11 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
                 )
         return None
 
+    # 每次查询打一条匹配参数诊断（只一次，不刷屏），用于定位中英文名匹配问题
+    logger.debug(
+        f"CAS视频扩展：准备查询产出 real={real!r} base={base!r} "
+        f"季集号={season_episode(real) or season_episode(base)!r}"
+    )
     rounds = wait_rounds if wait else 1
     # 上传刚返回时 CAS 可能还没消费 .cas 生成产出，先给一点缓冲再开始查，
     # 避免「上传刚启动就查、查不到就判失败」的过早误判。
@@ -518,6 +523,18 @@ def _patch_alist_upload() -> None:
         # 查到 -> 上传成功，用真实文件 size/name 合成结果；
         # 查不到 -> 上传失败，返回 None（宿主据此判定失败，不做任何伪造）。
         output = _find_cas_output(self, target_path, basename, real_name=real_name, wait=True)
+        if output is None:
+            # 最后兜底：用本地源文件名再查一次（源文件名含 SxxExx，能与网盘中文产出
+            # 按季集号唯一匹配）。覆盖「MP 中间态目标名不匹配」导致的误判失败。
+            src_real = _name_without_cas(src_name) or None
+            if src_real and src_real.lower() != str(real_name or "").lower():
+                logger.debug(
+                    f"CAS视频扩展：常规目标名未命中，用源文件名兜底重试：{src_real}"
+                )
+                output = _find_cas_output(
+                    self, target_path, Path(src_real).stem,
+                    real_name=src_real, wait=False,
+                )
         if output is None:
             logger.warning(
                 f"CAS视频扩展：OpenList 目标目录未发现 {target_name} 对应的 CAS 产出视频，"
@@ -663,7 +680,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.45"
+    plugin_version = "1.46"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
