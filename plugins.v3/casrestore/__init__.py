@@ -135,8 +135,11 @@ def _sel(model: str, label: str, items: Dict[str, str],
 
 def _sel_list(model: str, label: str, items: List[Dict[str, Any]],
               hint: str = "", md: int = 4) -> Dict[str, Any]:
-    """构造一个下拉框（选项为动态拉取的 {label, value} 列表）。"""
-    props: Dict[str, Any] = {"model": model, "label": label, "items": items}
+    """构造一个下拉框（动态 {label, value} 列表自动转为 Vuetify 的 title/value）。"""
+    normalized = [{"title": str(i.get("title") or i.get("label") or i.get("value", "")),
+                   "value": i.get("value")}
+                  for i in items if isinstance(i, dict)]
+    props: Dict[str, Any] = {"model": model, "label": label, "items": normalized}
     if hint:
         props["hint"] = hint
     return {
@@ -171,7 +174,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.2.1"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"

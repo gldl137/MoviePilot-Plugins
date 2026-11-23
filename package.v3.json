@@ -175,12 +175,13 @@
     "name": "CAS恢复源文件",
     "description": "扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件（秒传，不占本地带宽）；服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写；恢复成功后可选删除本地 .cas。",
     "labels": "CAS,秒传,恢复",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.2.1": "修复账号/家庭下拉选项显示 [object Object] 的问题（Vuetify VSelect 选项需 title/value 格式）。",
       "v1.2.0": "账号/家庭直接下拉选择：配置页实时调用 CAS 服务接口（GET /api/accounts、GET /api/accounts/{id}/families）拉取账号与家庭列表生成下拉框，不再手动填 accountId/familyId 数字。",
       "v1.1.0": "监控改为 inotify 事件驱动（新 .cas 写入完成即恢复，不再轮询，不可用时回退 30 秒轮询兜底）；CAS 地址只读 CAS助手 插件配置，移除本插件填写项；网盘目录自动跟随本地子目录结构（manual 模式拼接相对路径），恢复成功后删除 .cas 并清空本地空目录（边界为监控目录）；每次请求只提交一条 .cas。",
       "v1.0.0": "正式发布：轮询扫描监控目录中的 .cas 文件调用 /api/cas-restore/restore 恢复，失败重试、恢复后删除 .cas、Message 通知与立即运行一次。"
