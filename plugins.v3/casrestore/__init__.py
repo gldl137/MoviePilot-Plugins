@@ -23,10 +23,9 @@ CAS恢复源文件（CasRestore）
     "targetFolderId": "",
     "targetFolderPath": "家庭1/测试/子目录",
     "overwrite": false,
-    "files": [{"localFileName": "xxx.cas", "content": "<cas 文件内容的 base64>"}]
+    "files": [{"localFileName": "xxx.cas", "content": "<cas 文件内容（JSON 原文，勿 base64）>"}]
 }
 """
-import base64
 import threading
 import time
 from collections import deque
@@ -216,7 +215,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.7"
+    plugin_version = "1.5.8"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -1065,13 +1064,20 @@ class CasRestore(_PluginBase):
         except OSError as err:
             self._append_record(path.name, target_path, "失败", f"读取失败：{err}")
             return False, f"读取失败：{err}"
-        content = base64.b64encode(raw).decode("ascii")
         # 诊断：打印 .cas 原始内容前 200 字符，便于排查 CAS 端「文件解析失败」
         try:
             preview = raw[:200].decode("utf-8", errors="replace")
         except Exception:  # noqa: BLE001
             preview = repr(raw[:200])
         self._log(f"[诊断] {path.name} 内容前 200 字符：{preview}")
+        # .cas 是文本文件（JSON 元数据）：CAS 服务端收到 content 后直接 JSON.parse，
+        # 不做 base64 解码，因此这里必须传文件原文，不能 base64（否则解析到 ey… 报
+        # Unexpected token e in JSON at position 0）。
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError as err:
+            self._append_record(path.name, target_path, "失败", f"文件不是 UTF-8 文本：{err}")
+            return False, f"文件不是 UTF-8 文本：{err}"
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
             "scope": self._cfg_str("scope"),
