@@ -196,7 +196,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.3.2"
+    plugin_version = "1.4.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -289,6 +289,25 @@ class CasRestore(_PluginBase):
     def get_service() -> List[Dict[str, Any]]:
         """不向宿主注册 cron 服务（部分宿主 APScheduler 版本不兼容 cron=），用内部线程轮询。"""
         return []
+
+    @staticmethod
+    def get_render_mode() -> Tuple[str, str]:
+        """声明使用 Vue 联邦组件渲染，产物目录 dist/assets（侧栏入口依赖此模式）。"""
+        return "vue", "dist/assets"
+
+    @staticmethod
+    def get_sidebar_nav() -> List[Dict[str, Any]]:
+        """在主界面左侧「媒体整理」分组注册恢复记录全页入口。"""
+        return [
+            {
+                "nav_key": "main",
+                "title": "CAS恢复记录",
+                "icon": "mdi-file-restore",
+                "section": "organize",
+                "permission": "manage",
+                "order": 20,
+            }
+        ]
 
     # ------------------------------------------------------------------
     # 配置页
@@ -487,7 +506,70 @@ class CasRestore(_PluginBase):
              "auth": "bear", "summary": "测试 CAS 服务连接与鉴权"},
             {"path": "/clear_records", "endpoint": self.api_clear_records,
              "methods": ["POST"], "auth": "bear", "summary": "清空恢复记录"},
+            {"path": "/records", "endpoint": self.api_records, "methods": ["GET"],
+             "auth": "bear", "summary": "恢复记录列表（侧栏页面用）"},
+            {"path": "/accounts", "endpoint": self.api_accounts, "methods": ["GET"],
+             "auth": "bear", "summary": "CAS 账号列表（配置页下拉用）"},
+            {"path": "/families", "endpoint": self.api_families, "methods": ["GET"],
+             "auth": "bear", "summary": "CAS 家庭列表（配置页下拉用）"},
+            {"path": "/config", "endpoint": self.api_get_config, "methods": ["GET"],
+             "auth": "bear", "summary": "读取当前配置（Vue 配置页用）"},
+            {"path": "/save_config", "endpoint": self.api_save_config, "methods": ["POST"],
+             "auth": "bear", "summary": "保存配置（Vue 配置页用）"},
         ]
+
+    def api_get_config(self) -> Dict[str, Any]:
+        """返回当前配置（供 Vue 配置页渲染）。"""
+        return {"success": True, "config": dict(self._config)}
+
+    def api_save_config(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """保存配置并重新初始化（供 Vue 配置页调用）。"""
+        if not isinstance(config, dict):
+            return {"success": False, "message": "配置参数错误"}
+        try:
+            merged = {**self._config, **config}
+            self.update_config(merged)
+            self.init_plugin(merged)
+            self._log("配置已保存")
+            return {"success": True, "message": "配置已保存"}
+        except Exception as err:  # noqa: BLE001
+            return {"success": False, "message": str(err)}
+
+    def api_records(self) -> Dict[str, Any]:
+        """返回恢复记录列表（供侧栏页面渲染）。"""
+        records = self.get_data("restore_records") or []
+        if not isinstance(records, list):
+            records = []
+        success_count = sum(1 for r in records if isinstance(r, dict)
+                            and r.get("status") == "成功")
+        return {
+            "success": True,
+            "total": len(records),
+            "successCount": success_count,
+            "failedCount": len(records) - success_count,
+            "records": records,
+            "enabled": self._enabled,
+            "scanning": self._scanning,
+            "last_scan": self._last_scan,
+            "last_result": self._last_result,
+        }
+
+    def api_accounts(self) -> Dict[str, Any]:
+        """返回 CAS 账号列表（供前端配置页下拉）。"""
+        items, err = self._fetch_accounts()
+        if err:
+            return {"success": False, "message": err, "items": []}
+        return {"success": True, "items": items}
+
+    def api_families(self, account_id: Optional[str] = None) -> Dict[str, Any]:
+        """返回指定账号的家庭列表（供前端配置页下拉）。"""
+        target = account_id or self._cfg_str("account_id")
+        if not target:
+            return {"success": False, "message": "缺少账号 ID", "items": []}
+        items, err = self._fetch_families(target)
+        if err:
+            return {"success": False, "message": err, "items": []}
+        return {"success": True, "items": items}
 
     def api_clear_records(self) -> Dict[str, Any]:
         """清空恢复记录列表。"""
