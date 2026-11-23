@@ -9,6 +9,6 @@ const props = defineProps({
 
 <template>
   <div class="pa-4">
-    CAS 恢复源文件 · 恢复记录请查看左侧菜单「媒体整理 → CAS恢复记录」。
+    CAS 恢复源文件 · 恢复记录请查看左侧菜单「媒体整理 → CAS恢复」。
   </div>
 </template>

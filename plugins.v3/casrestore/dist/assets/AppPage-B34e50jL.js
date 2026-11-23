@@ -82,7 +82,7 @@ return (_ctx, _cache) => {
       default: __mf_14(() => [
         __mf_8(_component_v_card_title, { class: "d-flex align-center justify-space-between" }, {
           default: __mf_14(() => [
-            __mf_6("div", null, " CAS 恢复记录（共 " + __mf_2(data.value.total) + " 条 · 成功 " + __mf_2(data.value.successCount) + " · 失败 " + __mf_2(data.value.failedCount) + "） ", 1),
+            __mf_6("div", null, " CAS 恢复（共 " + __mf_2(data.value.total) + " 条 · 成功 " + __mf_2(data.value.successCount) + " · 失败 " + __mf_2(data.value.failedCount) + "） ", 1),
             __mf_6("div", _hoisted_2, [
               __mf_8(_component_v_btn, {
                 size: "small",

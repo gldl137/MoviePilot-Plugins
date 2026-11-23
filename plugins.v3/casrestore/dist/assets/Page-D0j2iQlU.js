@@ -14,7 +14,7 @@ const _sfc_main = {
   setup(__props) {
 
 return (_ctx, _cache) => {
-  return (__mf_10(), __mf_5("div", _hoisted_1, " CAS 恢复源文件 · 恢复记录请查看左侧菜单「媒体整理 → CAS恢复记录」。 "))
+  return (__mf_10(), __mf_5("div", _hoisted_1, " CAS 恢复源文件 · 恢复记录请查看左侧菜单「媒体整理 → CAS恢复」。 "))
 }
 }
 

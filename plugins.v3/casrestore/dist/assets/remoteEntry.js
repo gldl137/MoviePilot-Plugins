@@ -76,7 +76,7 @@ const cssAssetMap = {};
           await Promise.all([]);
           const importModule = await loadExposedModule(
             "./AppPage",
-            () => __vitePreload(() => import('./AppPage-CJI4c7Hp.js'),true?[]:void 0)
+            () => __vitePreload(() => import('./AppPage-B34e50jL.js'),true?[]:void 0)
           );
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
           if (dependencyPending && typeof dependencyPending.then === "function") {
@@ -118,7 +118,7 @@ const cssAssetMap = {};
           await Promise.all([]);
           const importModule = await loadExposedModule(
             "./Page",
-            () => __vitePreload(() => import('./Page-BMU5od5K.js'),true?[]:void 0)
+            () => __vitePreload(() => import('./Page-D0j2iQlU.js'),true?[]:void 0)
           );
           const dependencyPending = importModule && importModule.__mf_remote_dependency_pending;
           if (dependencyPending && typeof dependencyPending.then === "function") {

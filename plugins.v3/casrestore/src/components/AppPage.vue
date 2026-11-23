@@ -61,7 +61,7 @@ onMounted(load)
     <v-card>
       <v-card-title class="d-flex align-center justify-space-between">
         <div>
-          CAS 恢复记录（共 {{ data.total }} 条 · 成功 {{ data.successCount }} · 失败 {{ data.failedCount }}）
+          CAS 恢复（共 {{ data.total }} 条 · 成功 {{ data.successCount }} · 失败 {{ data.failedCount }}）
         </div>
         <div class="d-flex align-center" style="gap: 8px">
           <v-btn size="small" variant="outlined" color="primary" :loading="loading" @click="action('scan')">
