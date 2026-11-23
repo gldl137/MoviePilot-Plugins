@@ -91,22 +91,24 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
     let __mf_12;
     let __mf_13;
     let __mf_14;
+    let __mf_15;
     const __mfApplyHostProvidedExports = (exportModule) => {
       __mf_0 = exportModule["createApp"];
       __mf_1 = exportModule["ref"];
       __mf_2 = exportModule["toDisplayString"];
       __mf_3 = exportModule["Fragment"];
-      __mf_4 = exportModule["createCommentVNode"];
-      __mf_5 = exportModule["createElementBlock"];
-      __mf_6 = exportModule["createElementVNode"];
-      __mf_7 = exportModule["createTextVNode"];
-      __mf_8 = exportModule["createVNode"];
-      __mf_9 = exportModule["onMounted"];
-      __mf_10 = exportModule["openBlock"];
-      __mf_11 = exportModule["renderList"];
-      __mf_12 = exportModule["resolveComponent"];
-      __mf_13 = exportModule["watch"];
-      __mf_14 = exportModule["withCtx"];
+      __mf_4 = exportModule["computed"];
+      __mf_5 = exportModule["createCommentVNode"];
+      __mf_6 = exportModule["createElementBlock"];
+      __mf_7 = exportModule["createElementVNode"];
+      __mf_8 = exportModule["createTextVNode"];
+      __mf_9 = exportModule["createVNode"];
+      __mf_10 = exportModule["onMounted"];
+      __mf_11 = exportModule["openBlock"];
+      __mf_12 = exportModule["renderList"];
+      __mf_13 = exportModule["resolveComponent"];
+      __mf_14 = exportModule["watch"];
+      __mf_15 = exportModule["withCtx"];
       exportModule.default ?? exportModule;
     };
     let exportModule = __mfReadSharedCache(__mfModuleCache.share, {"canonical":"default:vue@3.5.46","aliases":["vue@3.5.46"]});
@@ -134,4 +136,4 @@ for (const __mfShareKey of Object.keys(__mfModuleCache.share)) {
       __mfApplyHostProvidedExports(exportModule);
     }
 
-export { __mf_10 as _, __mf_5 as a, __mf_0 as b, __mf_1 as c, __mf_9 as d, __mf_12 as e, __mf_8 as f, __mf_14 as g, __mf_6 as h, __mf_2 as i, __mf_7 as j, __mf_3 as k, __mf_4 as l, __mf_11 as m, __mf_13 as n };
+export { __mf_11 as _, __mf_6 as a, __mf_0 as b, __mf_1 as c, __mf_4 as d, __mf_10 as e, __mf_13 as f, __mf_7 as g, __mf_8 as h, __mf_2 as i, __mf_3 as j, __mf_5 as k, __mf_9 as l, __mf_15 as m, __mf_12 as n, __mf_14 as o };

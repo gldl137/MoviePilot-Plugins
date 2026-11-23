@@ -1,4 +1,5 @@
-import { _ as __mf_10, a as __mf_5, b as __mf_0 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-CJ5-BD8a.js';
+import { _ as __mf_11, a as __mf_6, b as __mf_0 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-CdE3h5B1.js';
+import { _ as _export_sfc } from './_plugin-vue_export-helper-pcqpp-6-.js';
 
 true&&(function polyfill() {
   const relList = document.createElement("link").relList;
@@ -38,20 +39,12 @@ true&&(function polyfill() {
   }
 }());
 
-const _export_sfc = (sfc, props) => {
-  const target = sfc.__vccOpts || sfc;
-  for (const [key, val] of props) {
-    target[key] = val;
-  }
-  return target;
-};
-
 const _sfc_main = {  };
 
 const _hoisted_1 = { class: "pa-4" };
 
 function _sfc_render(_ctx, _cache) {
-  return (__mf_10(), __mf_5("div", _hoisted_1, "CasRestore dev preview"))
+  return (__mf_11(), __mf_6("div", _hoisted_1, "CasRestore dev preview"))
 }
 const App = /*#__PURE__*/_export_sfc(_sfc_main, [['render',_sfc_render]]);
 

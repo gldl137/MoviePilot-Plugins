@@ -1,4 +1,4 @@
-import { c as __mf_1, n as __mf_13, d as __mf_9, e as __mf_12, _ as __mf_10, a as __mf_5, f as __mf_8, g as __mf_14, j as __mf_7 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-CJ5-BD8a.js';
+import { c as __mf_1, o as __mf_14, e as __mf_10, f as __mf_13, _ as __mf_11, a as __mf_6, l as __mf_9, m as __mf_15, h as __mf_8 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-CdE3h5B1.js';
 
 const _hoisted_1 = { class: "pa-4" };
 
@@ -104,10 +104,10 @@ function save() {
   }
 }
 
-__mf_13(() => cfg.value.account_id, loadFamilies);
-__mf_13(() => cfg.value.scope, loadFamilies);
+__mf_14(() => cfg.value.account_id, loadFamilies);
+__mf_14(() => cfg.value.scope, loadFamilies);
 
-__mf_9(async () => {
+__mf_10(async () => {
   loading.value = true;
   try {
     await loadAccounts();
@@ -118,49 +118,49 @@ __mf_9(async () => {
 });
 
 return (_ctx, _cache) => {
-  const _component_v_card_title = __mf_12("v-card-title");
-  const _component_v_alert = __mf_12("v-alert");
-  const _component_v_switch = __mf_12("v-switch");
-  const _component_v_col = __mf_12("v-col");
-  const _component_v_btn = __mf_12("v-btn");
-  const _component_v_text_field = __mf_12("v-text-field");
-  const _component_v_select = __mf_12("v-select");
-  const _component_v_row = __mf_12("v-row");
-  const _component_v_card_text = __mf_12("v-card-text");
-  const _component_v_spacer = __mf_12("v-spacer");
-  const _component_v_card_actions = __mf_12("v-card-actions");
-  const _component_v_card = __mf_12("v-card");
+  const _component_v_card_title = __mf_13("v-card-title");
+  const _component_v_alert = __mf_13("v-alert");
+  const _component_v_switch = __mf_13("v-switch");
+  const _component_v_col = __mf_13("v-col");
+  const _component_v_btn = __mf_13("v-btn");
+  const _component_v_text_field = __mf_13("v-text-field");
+  const _component_v_select = __mf_13("v-select");
+  const _component_v_row = __mf_13("v-row");
+  const _component_v_card_text = __mf_13("v-card-text");
+  const _component_v_spacer = __mf_13("v-spacer");
+  const _component_v_card_actions = __mf_13("v-card-actions");
+  const _component_v_card = __mf_13("v-card");
 
-  return (__mf_10(), __mf_5("div", _hoisted_1, [
-    __mf_8(_component_v_card, null, {
-      default: __mf_14(() => [
-        __mf_8(_component_v_card_title, null, {
-          default: __mf_14(() => [...(_cache[9] || (_cache[9] = [
-            __mf_7("CAS 恢复源文件 · 设置", -1)
+  return (__mf_11(), __mf_6("div", _hoisted_1, [
+    __mf_9(_component_v_card, null, {
+      default: __mf_15(() => [
+        __mf_9(_component_v_card_title, null, {
+          default: __mf_15(() => [...(_cache[9] || (_cache[9] = [
+            __mf_8("CAS 恢复源文件 · 设置", -1)
           ]))]),
           _: 1
         }),
-        __mf_8(_component_v_card_text, null, {
-          default: __mf_14(() => [
-            __mf_8(_component_v_alert, {
+        __mf_9(_component_v_card_text, null, {
+          default: __mf_15(() => [
+            __mf_9(_component_v_alert, {
               type: "info",
               variant: "tonal",
               density: "compact",
               class: "mb-4"
             }, {
-              default: __mf_14(() => [...(_cache[10] || (_cache[10] = [
-                __mf_7(" 监控目录有新 .cas 写入时自动恢复；CAS 服务地址与 API Key 读取「CAS助手」插件，账号 / 家庭 / 目标路径在此选择。 ", -1)
+              default: __mf_15(() => [...(_cache[10] || (_cache[10] = [
+                __mf_8(" 监控目录有新 .cas 写入时自动恢复；CAS 服务地址与 API Key 读取「CAS助手」插件，账号 / 家庭 / 目标路径在此选择。 ", -1)
               ]))]),
               _: 1
             }),
-            __mf_8(_component_v_row, null, {
-              default: __mf_14(() => [
-                __mf_8(_component_v_col, {
+            __mf_9(_component_v_row, null, {
+              default: __mf_15(() => [
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "3"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_switch, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_switch, {
                       modelValue: cfg.value.enabled,
                       "onUpdate:modelValue": _cache[0] || (_cache[0] = $event => ((cfg.value.enabled) = $event)),
                       label: "启用插件",
@@ -170,12 +170,12 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "3"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_switch, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_switch, {
                       modelValue: cfg.value.notify,
                       "onUpdate:modelValue": _cache[1] || (_cache[1] = $event => ((cfg.value.notify) = $event)),
                       label: "发送通知",
@@ -185,12 +185,12 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "3"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_switch, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_switch, {
                       modelValue: cfg.value.onlyonce,
                       "onUpdate:modelValue": _cache[2] || (_cache[2] = $event => ((cfg.value.onlyonce) = $event)),
                       label: "立即运行一次",
@@ -200,30 +200,30 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "3",
                   class: "d-flex align-center"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_btn, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_btn, {
                       color: "warning",
                       variant: "outlined",
                       block: "",
                       loading: clearing.value,
                       onClick: clearRun
                     }, {
-                      default: __mf_14(() => [...(_cache[11] || (_cache[11] = [
-                        __mf_7(" 清除运行记录 ", -1)
+                      default: __mf_15(() => [...(_cache[11] || (_cache[11] = [
+                        __mf_8(" 清除运行记录 ", -1)
                       ]))]),
                       _: 1
                     }, 8, ["loading"])
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, { cols: "12" }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_text_field, {
+                __mf_9(_component_v_col, { cols: "12" }, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_text_field, {
                       modelValue: cfg.value.watch_dir,
                       "onUpdate:modelValue": _cache[3] || (_cache[3] = $event => ((cfg.value.watch_dir) = $event)),
                       label: "监控目录",
@@ -234,12 +234,12 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "4"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_select, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_select, {
                       modelValue: cfg.value.account_id,
                       "onUpdate:modelValue": _cache[4] || (_cache[4] = $event => ((cfg.value.account_id) = $event)),
                       items: accounts.value,
@@ -253,12 +253,12 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "4"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_select, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_select, {
                       modelValue: cfg.value.scope,
                       "onUpdate:modelValue": _cache[5] || (_cache[5] = $event => ((cfg.value.scope) = $event)),
                       items: [
@@ -274,12 +274,12 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, {
+                __mf_9(_component_v_col, {
                   cols: "12",
                   md: "4"
                 }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_select, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_select, {
                       modelValue: cfg.value.family_id,
                       "onUpdate:modelValue": _cache[6] || (_cache[6] = $event => ((cfg.value.family_id) = $event)),
                       items: families.value,
@@ -293,9 +293,9 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, { cols: "12" }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_text_field, {
+                __mf_9(_component_v_col, { cols: "12" }, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_text_field, {
                       modelValue: cfg.value.target_folder_path,
                       "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.value.target_folder_path) = $event)),
                       label: "目标文件夹路径",
@@ -306,9 +306,9 @@ return (_ctx, _cache) => {
                   ]),
                   _: 1
                 }),
-                __mf_8(_component_v_col, { cols: "12" }, {
-                  default: __mf_14(() => [
-                    __mf_8(_component_v_select, {
+                __mf_9(_component_v_col, { cols: "12" }, {
+                  default: __mf_15(() => [
+                    __mf_9(_component_v_select, {
                       modelValue: cfg.value.overwrite,
                       "onUpdate:modelValue": _cache[8] || (_cache[8] = $event => ((cfg.value.overwrite) = $event)),
                       items: [
@@ -331,16 +331,16 @@ return (_ctx, _cache) => {
           ]),
           _: 1
         }),
-        __mf_8(_component_v_card_actions, null, {
-          default: __mf_14(() => [
-            __mf_8(_component_v_spacer),
-            __mf_8(_component_v_btn, {
+        __mf_9(_component_v_card_actions, null, {
+          default: __mf_15(() => [
+            __mf_9(_component_v_spacer),
+            __mf_9(_component_v_btn, {
               color: "primary",
               loading: saving.value,
               onClick: save
             }, {
-              default: __mf_14(() => [...(_cache[12] || (_cache[12] = [
-                __mf_7("保存配置", -1)
+              default: __mf_15(() => [...(_cache[12] || (_cache[12] = [
+                __mf_8("保存配置", -1)
               ]))]),
               _: 1
             }, 8, ["loading"])
