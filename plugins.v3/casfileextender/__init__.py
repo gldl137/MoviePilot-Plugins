@@ -436,15 +436,16 @@ def _patch_alist_upload() -> None:
             logger.debug(f"CAS视频扩展：解析目标路径失败：{err}")
             return result
 
-        # 唯一判据：查询 OpenList 目标目录里 CAS 实际产出的视频（短轮询等异步恢复）。
-        # 查到 -> 成功，用查到的真实文件 size/name；查不到 -> 不伪造，保留原生结果。
+        # 唯一判据（二值）：查询 OpenList 目标目录里 CAS 实际产出的视频（短轮询等异步恢复）。
+        # 查到 -> 上传成功，用真实文件 size/name 合成结果；
+        # 查不到 -> 上传失败，返回 None（宿主据此判定失败，不做任何伪造）。
         output = _find_cas_output(self, target_path, basename, real_name=real_name, wait=True)
         if output is None:
-            logger.info(
+            logger.warning(
                 f"CAS视频扩展：OpenList 目标目录未发现 {src_name} 对应的 CAS 产出视频，"
-                "保留原生上传结果（不做伪造）"
+                "判定上传失败"
             )
-            return result
+            return None
 
         out_size = getattr(output, "size", None)
         out_name = getattr(output, "name", None) or real_name or target_name
@@ -570,9 +571,9 @@ def _patch_alist_upload() -> None:
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后实际 list 查询 OpenList 目录并把查到的文件名/格式/大小打到日志，以真实文件判断秒传成败，并让整理历史记录显示真实视频名与真实大小（非 .cas/344B），修复上传/核对误报。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.36"
+    plugin_version = "1.37"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
