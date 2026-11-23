@@ -216,7 +216,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.5"
+    plugin_version = "1.5.6"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -243,7 +243,10 @@ class CasRestore(_PluginBase):
         self._logs: deque = deque(maxlen=MAX_LOG_LINES)
         self._log_lock = threading.Lock()
         self._state_lock = threading.Lock()
-        self._scan_lock = threading.Lock()
+        # 必须用可重入锁：_scan_once 持锁后会逐文件调用 _process_file，
+        # _process_file 内部也会 acquire 同一把锁，普通 Lock 会在同线程重入时
+        # acquire(blocking=False) 返回 False，导致所有文件被静默跳过（恢复成功 0 个）。
+        self._scan_lock = threading.RLock()
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._trigger = threading.Event()
