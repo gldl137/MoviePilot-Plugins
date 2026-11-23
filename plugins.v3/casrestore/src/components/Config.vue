@@ -15,9 +15,10 @@ const cfg = ref({
   enabled: false,
   watch_dir: '',
   account_id: '',
-  scope: 'personal',
+  scope: 'family',
   family_id: '',
-  target_folder_path: '',
+  target_folder_id: '',
+  target_folder_name: '',
   notify: true,
   onlyonce: false,
   overwrite: '0',
@@ -33,6 +34,13 @@ const saving = ref(false)
 const clearing = ref(false)
 const saveMessage = ref('')
 const saveError = ref(false)
+
+// 目录级联选择：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录的子文件夹
+const folderStack = ref([{ id: '-11', name: '根目录' }])
+const folderList = ref([])
+const folderSelected = ref(null)
+const folderLoading = ref(false)
+const folderHint = ref('')
 
 async function clearRun() {
   clearing.value = true
@@ -86,6 +94,67 @@ async function loadFamilies() {
   }
 }
 
+async function loadFolders(folderId, name) {
+  if (!cfg.value.account_id) {
+    folderList.value = []
+    folderHint.value = '先选择账号'
+    return
+  }
+  if (cfg.value.scope === 'family' && !cfg.value.family_id) {
+    folderList.value = []
+    folderHint.value = '先选择家庭'
+    return
+  }
+  folderLoading.value = true
+  try {
+    const r = await props.api.get(`plugin/${props.pluginId}/folders`, {
+      params: {
+        account_id: cfg.value.account_id,
+        scope: cfg.value.scope,
+        family_id: cfg.value.family_id,
+        folder_id: folderId,
+      },
+    })
+    if (r && r.success) {
+      folderList.value = r.items || []
+      folderHint.value = folderList.value.length ? '选择一个子文件夹进入' : '（当前目录无子文件夹）'
+    } else {
+      folderList.value = []
+      folderHint.value = (r && r.message) || '拉取失败'
+    }
+  } catch (e) {
+    folderList.value = []
+    folderHint.value = '拉取失败：' + (e && e.message ? e.message : e)
+  } finally {
+    folderLoading.value = false
+  }
+}
+
+function onFolderPick(item) {
+  folderSelected.value = null
+  if (!item || !item.value) return
+  folderStack.value.push({ id: item.value, name: item.name || item.label })
+  cfg.value.target_folder_id = item.value
+  cfg.value.target_folder_name = item.name || item.label
+  loadFolders(item.value, item.name || item.label)
+}
+
+function goToFolder(index) {
+  folderStack.value = folderStack.value.slice(0, index + 1)
+  const top = folderStack.value[folderStack.value.length - 1]
+  cfg.value.target_folder_id = top.id === '-11' ? '' : top.id
+  cfg.value.target_folder_name = top.id === '-11' ? '' : top.name
+  loadFolders(top.id, top.name)
+}
+
+function resetFolders() {
+  folderStack.value = [{ id: '-11', name: '根目录' }]
+  cfg.value.target_folder_id = ''
+  cfg.value.target_folder_name = ''
+  folderSelected.value = null
+  loadFolders('-11', '根目录')
+}
+
 async function save() {
   if (saving.value) return
   saving.value = true
@@ -113,8 +182,9 @@ async function save() {
   }
 }
 
-watch(() => cfg.value.account_id, loadFamilies)
-watch(() => cfg.value.scope, loadFamilies)
+watch(() => cfg.value.account_id, () => { loadFamilies(); resetFolders() })
+watch(() => cfg.value.scope, () => { loadFamilies(); resetFolders() })
+watch(() => cfg.value.family_id, resetFolders)
 
 onMounted(async () => {
   loading.value = true
@@ -132,6 +202,7 @@ onMounted(async () => {
     }
     await loadAccounts()
     await loadFamilies()
+    await loadFolders('-11', '根目录')
   } finally {
     loading.value = false
   }
@@ -209,12 +280,34 @@ onMounted(async () => {
             />
           </v-col>
           <v-col cols="12">
-            <v-text-field
-              v-model="cfg.target_folder_path"
-              label="目标文件夹路径"
-              hint="网盘基路径（如 家庭1/测试），本地子目录自动拼接到其后"
+            <div class="d-flex align-center flex-wrap mb-1" style="gap: 4px">
+              <span class="text-body-2 text-medium-emphasis">目标文件夹：</span>
+              <template v-for="(f, i) in folderStack" :key="f.id">
+                <span v-if="i > 0" class="text-body-2 text-medium-emphasis">/</span>
+                <v-chip
+                  size="x-small"
+                  :color="i === folderStack.length - 1 ? 'primary' : 'default'"
+                  variant="tonal"
+                  @click="goToFolder(i)"
+                >
+                  {{ f.name }}
+                </v-chip>
+              </template>
+              <v-chip v-if="cfg.target_folder_id" size="x-small" color="success" variant="tonal" class="ml-1">
+                已选：{{ cfg.target_folder_name }}
+              </v-chip>
+            </div>
+            <v-select
+              v-model="folderSelected"
+              :items="folderList"
+              :loading="folderLoading"
+              label="子文件夹"
+              :hint="folderHint"
               persistent-hint
               density="compact"
+              item-title="label"
+              return-object
+              @update:model-value="onFolderPick"
             />
           </v-col>
           <v-col cols="12">

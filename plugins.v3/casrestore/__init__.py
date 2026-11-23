@@ -215,7 +215,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.5.8"
+    plugin_version = "1.6.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -228,7 +228,8 @@ class CasRestore(_PluginBase):
         "account_id": "",
         "scope": "family",
         "family_id": "",
-        "target_folder_path": "",
+        "target_folder_id": "",
+        "target_folder_name": "",
         "notify": True,
         "onlyonce": False,
         "overwrite": "0",
@@ -401,9 +402,9 @@ class CasRestore(_PluginBase):
                           hint=family_hint, md=4),
             ),
             _row(
-                _tf("target_folder_path", "目标文件夹路径",
-                    "网盘基路径（手动输入）；本地子目录会自动拼接到其后（如 家庭1/测试）",
-                    "家庭1/测试", md=12),
+                _tf("target_folder_id", "目标文件夹 ID",
+                    "在配置页通过下拉选择（folderId）；此处仅作回退展示",
+                    "", md=12),
             ),
             _row(
                 _sel("overwrite", "同名文件",
@@ -546,6 +547,8 @@ class CasRestore(_PluginBase):
              "auth": "bear", "summary": "CAS 账号列表（配置页下拉用）"},
             {"path": "/families", "endpoint": self.api_families, "methods": ["GET"],
              "auth": "bear", "summary": "CAS 家庭列表（配置页下拉用）"},
+            {"path": "/folders", "endpoint": self.api_folders, "methods": ["GET"],
+             "auth": "bear", "summary": "CAS 文件夹列表（配置页目录选择用）"},
             {"path": "/config", "endpoint": self.api_get_config, "methods": ["GET"],
              "auth": "bear", "summary": "读取当前配置（Vue 配置页用）"},
             {"path": "/save_config", "endpoint": self.api_save_config, "methods": ["POST"],
@@ -601,6 +604,22 @@ class CasRestore(_PluginBase):
         if not target:
             return {"success": False, "message": "缺少账号 ID", "items": []}
         items, err = self._fetch_families(target)
+        if err:
+            return {"success": False, "message": err, "items": []}
+        return {"success": True, "items": items}
+
+    def api_folders(self, account_id: Optional[str] = None,
+                    scope: Optional[str] = None,
+                    family_id: Optional[str] = None,
+                    folder_id: Optional[str] = None) -> Dict[str, Any]:
+        """返回指定目录下的子文件夹列表（供前端目录选择）。folder_id 缺省为 -11（根目录）。"""
+        target = account_id or self._cfg_str("account_id")
+        if not target:
+            return {"success": False, "message": "缺少账号 ID", "items": []}
+        scp = (scope or self._cfg_str("scope") or "family").strip()
+        fid = family_id or self._cfg_str("family_id")
+        folder = folder_id if folder_id is not None and str(folder_id) != "" else "-11"
+        items, err = self._fetch_folders(target, scp, fid, str(folder))
         if err:
             return {"success": False, "message": err, "items": []}
         return {"success": True, "items": items}
@@ -715,8 +734,8 @@ class CasRestore(_PluginBase):
             return "空间类型只能是 family / personal"
         if self._cfg_str("scope") == "family" and not self._cfg_str("family_id"):
             return "空间类型为家庭空间时需要填写家庭 ID"
-        if not self._cfg_str("target_folder_path"):
-            return "需要填写目标文件夹路径（网盘基路径）"
+        if not self._cfg_str("target_folder_id"):
+            return "需要选择目标文件夹（网盘恢复目录）"
         host, _, _ = self._resolve_cas()
         if not host:
             return "未获取到 CAS 服务地址，请先启用并配置「CAS助手」插件"
@@ -832,6 +851,46 @@ class CasRestore(_PluginBase):
                     items.append({"label": label, "value": fid})
             if not items:
                 return [], f"该账号未获取到可用家庭（接口原始返回：{str(data)[:150]}）"
+            return items, ""
+        except Exception as err:  # noqa: BLE001
+            return [], str(err)
+
+    def _fetch_folders(self, account_id: str, scope: str, family_id: str,
+                       folder_id: str = "-11",
+                       timeout: int = 8) -> Tuple[List[Dict[str, Any]], str]:
+        """
+        从 CAS 服务拉取指定目录下的子文件夹（GET /api/folders/{accountId}）。
+
+        返回 (items, error)：items 为 [{label, value, name}]，value 为文件夹 id。
+        folder_id 传 -11 表示网盘根目录。
+        """
+        host, api_key, _ = self._resolve_cas()
+        if not host:
+            return [], "未获取到 CAS 服务地址（请先配置 CAS助手 插件）"
+        if requests is None:
+            return [], "当前环境缺少 requests 库"
+        try:
+            session = self._new_session()
+            headers = {"x-api-key": api_key} if api_key else {}
+            params: Dict[str, str] = {
+                "folderId": folder_id, "forceRefresh": "false", "scope": scope}
+            if scope == "family":
+                params["familyId"] = family_id
+            resp = session.get(f"{host}/api/folders/{account_id}",
+                               headers=headers, params=params, timeout=timeout)
+            if resp.status_code != 200:
+                return [], f"HTTP {resp.status_code}: {resp.text[:150]}"
+            data = resp.json()
+            if not data.get("success"):
+                return [], str(data.get("message") or data.get("error") or "接口返回失败")
+            items: List[Dict[str, Any]] = []
+            for folder in data.get("data") or []:
+                if not isinstance(folder, dict):
+                    continue
+                fid = str(folder.get("id") or "")
+                name = str(folder.get("name") or "")
+                if fid:
+                    items.append({"label": name, "value": fid, "name": name})
             return items, ""
         except Exception as err:  # noqa: BLE001
             return [], str(err)
@@ -1025,7 +1084,8 @@ class CasRestore(_PluginBase):
                 if self._cfg_bool("notify", True):
                     self._notify(
                         f"{self.plugin_name} 恢复成功",
-                        f"{path.name} 已恢复到网盘：{self._cfg_str('target_folder_path')}",
+                        f"{path.name} 已恢复到网盘目录："
+                        f"{self._cfg_str('target_folder_name') or self._cfg_str('target_folder_id')}",
                     )
                 return True
             count = int(failures.get(key, 0)) + 1
@@ -1050,19 +1110,16 @@ class CasRestore(_PluginBase):
         """
         调用 /api/cas-restore/restore 恢复单个 .cas（一次一条）。
 
-        网盘目录 = 目标基路径 + 本地相对子目录（manual 模式，CAS 自动创建缺失目录）。
+        网盘目录用目录 id 指定（select 模式 + targetFolderId），避免 CAS 的
+        manual+targetFolderPath 把目录建到网盘根目录。
         返回 (是否成功, 失败原因)。
         """
-        try:
-            rel = path.parent.resolve().relative_to(watch_dir.resolve()).as_posix()
-        except (ValueError, OSError):
-            rel = ""
-        base = self._cfg_str("target_folder_path").strip().strip("/")
-        target_path = f"{base}/{rel}" if (base and rel) else (base or rel)
+        target_folder_id = self._cfg_str("target_folder_id")
+        target_label = self._cfg_str("target_folder_name") or target_folder_id
         try:
             raw = path.read_bytes()
         except OSError as err:
-            self._append_record(path.name, target_path, "失败", f"读取失败：{err}")
+            self._append_record(path.name, target_label, "失败", f"读取失败：{err}")
             return False, f"读取失败：{err}"
         # 诊断：打印 .cas 原始内容前 200 字符，便于排查 CAS 端「文件解析失败」
         try:
@@ -1070,26 +1127,27 @@ class CasRestore(_PluginBase):
         except Exception:  # noqa: BLE001
             preview = repr(raw[:200])
         self._log(f"[诊断] {path.name} 内容前 200 字符：{preview}")
-        # .cas 是文本文件（JSON 元数据）：CAS 服务端收到 content 后直接 JSON.parse，
-        # 不做 base64 解码，因此这里必须传文件原文，不能 base64（否则解析到 ey… 报
+        # .cas 文件内容本身是「JSON 的 base64 文本」（如 eyJ...），CAS 服务端收到
+        # content 后会自行 base64 解码再 JSON.parse。因此这里直接提交文件原文即可，
+        # 不要再额外 base64（否则双重编码，CAS 解码一次后仍是 base64，报
         # Unexpected token e in JSON at position 0）。
         try:
             content = raw.decode("utf-8")
         except UnicodeDecodeError as err:
-            self._append_record(path.name, target_path, "失败", f"文件不是 UTF-8 文本：{err}")
+            self._append_record(path.name, target_label, "失败", f"文件不是 UTF-8 文本：{err}")
             return False, f"文件不是 UTF-8 文本：{err}"
         payload: Dict[str, Any] = {
             "accountId": int(float(self._cfg_str("account_id") or 0) or 0),
             "scope": self._cfg_str("scope"),
-            "directoryMode": "manual",
-            "targetFolderId": "",
-            "targetFolderPath": target_path,
+            "directoryMode": "select",
+            "targetFolderId": target_folder_id,
+            "targetFolderPath": "",
             "overwrite": self._cfg_str("overwrite", "0") == "1",
             "files": [{"localFileName": path.name, "content": content}],
         }
         if self._cfg_str("scope") == "family":
             payload["familyId"] = self._cfg_str("family_id")
-        self._log(f"提交恢复：{path.name} → {target_path}")
+        self._log(f"提交恢复：{path.name} → {target_label}")
         try:
             session = self._new_session()
             headers = {"x-api-key": api_key} if api_key else {}
@@ -1098,24 +1156,24 @@ class CasRestore(_PluginBase):
             resp.raise_for_status()
             data = resp.json()
         except Exception as err:  # noqa: BLE001
-            self._append_record(path.name, target_path, "失败", f"请求失败：{err}")
+            self._append_record(path.name, target_label, "失败", f"请求失败：{err}")
             return False, str(err)
         if not data.get("success"):
             message = str((data.get("data") or {}).get("message")
                           or data.get("message") or data)
-            self._append_record(path.name, target_path, "失败", f"接口返回失败：{message}")
+            self._append_record(path.name, target_label, "失败", f"接口返回失败：{message}")
             return False, message
         rdata = data.get("data") or {}
         results = [r for r in (rdata.get("results") or []) if isinstance(r, dict)]
         result = results[0] if results else {}
         if not result.get("success"):
             reason = str(result.get("message") or "未知原因")
-            self._append_record(path.name, target_path, "失败", reason)
+            self._append_record(path.name, target_label, "失败", reason)
             return False, reason
         mode_text = str(result.get("mode") or "")
         self._log(f"恢复成功：{path.name} → {result.get('fileName') or path.stem}"
-                  f"（{mode_text}），网盘目录 {target_path}")
-        self._append_record(path.name, target_path, "成功",
+                  f"（{mode_text}），网盘目录 {target_label}")
+        self._append_record(path.name, target_label, "成功",
                             f"恢复为 {result.get('fileName') or path.stem}"
                             + (f"（模式 {mode_text}）" if mode_text else ""))
         # 删除本地 .cas 并清空空目录（边界为监控目录本身，不向上越界）

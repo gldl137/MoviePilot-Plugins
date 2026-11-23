@@ -1,6 +1,14 @@
-import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, q as __mf_2, i as __mf_3, k as __mf_7 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
+import { c as __mf_1, p as __mf_16, e as __mf_12, f as __mf_15, _ as __mf_13, a as __mf_8, l as __mf_11, m as __mf_17, h as __mf_10, g as __mf_9, j as __mf_4, n as __mf_14, k as __mf_7, i as __mf_3, o as __mf_6, q as __mf_2 } from './_virtual_mf___mfe_internal__CasRestore__mf_owner__258351331282643__loadShare__vue__loadShare__-De8H7wIV.js';
 
 const _hoisted_1 = { class: "pa-4" };
+const _hoisted_2 = {
+  class: "d-flex align-center flex-wrap mb-1",
+  style: {"gap":"4px"}
+};
+const _hoisted_3 = {
+  key: 0,
+  class: "text-body-2 text-medium-emphasis"
+};
 
 
 const _sfc_main = {
@@ -23,9 +31,10 @@ const cfg = __mf_1({
   enabled: false,
   watch_dir: '',
   account_id: '',
-  scope: 'personal',
+  scope: 'family',
   family_id: '',
-  target_folder_path: '',
+  target_folder_id: '',
+  target_folder_name: '',
   notify: true,
   onlyonce: false,
   overwrite: '0',
@@ -41,6 +50,13 @@ const saving = __mf_1(false);
 const clearing = __mf_1(false);
 const saveMessage = __mf_1('');
 const saveError = __mf_1(false);
+
+// 目录级联选择：folderStack 为面包屑（首项恒为根目录），folderList 为当前目录的子文件夹
+const folderStack = __mf_1([{ id: '-11', name: '根目录' }]);
+const folderList = __mf_1([]);
+const folderSelected = __mf_1(null);
+const folderLoading = __mf_1(false);
+const folderHint = __mf_1('');
 
 async function clearRun() {
   clearing.value = true;
@@ -94,6 +110,67 @@ async function loadFamilies() {
   }
 }
 
+async function loadFolders(folderId, name) {
+  if (!cfg.value.account_id) {
+    folderList.value = [];
+    folderHint.value = '先选择账号';
+    return
+  }
+  if (cfg.value.scope === 'family' && !cfg.value.family_id) {
+    folderList.value = [];
+    folderHint.value = '先选择家庭';
+    return
+  }
+  folderLoading.value = true;
+  try {
+    const r = await props.api.get(`plugin/${props.pluginId}/folders`, {
+      params: {
+        account_id: cfg.value.account_id,
+        scope: cfg.value.scope,
+        family_id: cfg.value.family_id,
+        folder_id: folderId,
+      },
+    });
+    if (r && r.success) {
+      folderList.value = r.items || [];
+      folderHint.value = folderList.value.length ? '选择一个子文件夹进入' : '（当前目录无子文件夹）';
+    } else {
+      folderList.value = [];
+      folderHint.value = (r && r.message) || '拉取失败';
+    }
+  } catch (e) {
+    folderList.value = [];
+    folderHint.value = '拉取失败：' + (e && e.message ? e.message : e);
+  } finally {
+    folderLoading.value = false;
+  }
+}
+
+function onFolderPick(item) {
+  folderSelected.value = null;
+  if (!item || !item.value) return
+  folderStack.value.push({ id: item.value, name: item.name || item.label });
+  cfg.value.target_folder_id = item.value;
+  cfg.value.target_folder_name = item.name || item.label;
+  loadFolders(item.value, item.name || item.label);
+}
+
+function goToFolder(index) {
+  folderStack.value = folderStack.value.slice(0, index + 1);
+  const top = folderStack.value[folderStack.value.length - 1];
+  cfg.value.target_folder_id = top.id === '-11' ? '' : top.id;
+  cfg.value.target_folder_name = top.id === '-11' ? '' : top.name;
+  loadFolders(top.id, top.name);
+}
+
+function resetFolders() {
+  folderStack.value = [{ id: '-11', name: '根目录' }];
+  cfg.value.target_folder_id = '';
+  cfg.value.target_folder_name = '';
+  folderSelected.value = null;
+  loadFolders('-11');
+}
+
 async function save() {
   if (saving.value) return
   saving.value = true;
@@ -121,8 +198,9 @@ async function save() {
   }
 }
 
-__mf_16(() => cfg.value.account_id, loadFamilies);
-__mf_16(() => cfg.value.scope, loadFamilies);
+__mf_16(() => cfg.value.account_id, () => { loadFamilies(); resetFolders(); });
+__mf_16(() => cfg.value.scope, () => { loadFamilies(); resetFolders(); });
+__mf_16(() => cfg.value.family_id, resetFolders);
 
 __mf_12(async () => {
   loading.value = true;
@@ -140,6 +218,7 @@ __mf_12(async () => {
     }
     await loadAccounts();
     await loadFamilies();
+    await loadFolders('-11', '根目录');
   } finally {
     loading.value = false;
   }
@@ -153,6 +232,7 @@ return (_ctx, _cache) => {
   const _component_v_btn = __mf_15("v-btn");
   const _component_v_select = __mf_15("v-select");
   const _component_v_text_field = __mf_15("v-text-field");
+  const _component_v_chip = __mf_15("v-chip");
   const _component_v_row = __mf_15("v-row");
   const _component_v_card_text = __mf_15("v-card-text");
   const _component_v_spacer = __mf_15("v-spacer");
@@ -323,14 +403,58 @@ return (_ctx, _cache) => {
                 }),
                 __mf_11(_component_v_col, { cols: "12" }, {
                   default: __mf_17(() => [
-                    __mf_11(_component_v_text_field, {
-                      modelValue: cfg.value.target_folder_path,
-                      "onUpdate:modelValue": _cache[7] || (_cache[7] = $event => ((cfg.value.target_folder_path) = $event)),
-                      label: "目标文件夹路径",
-                      hint: "网盘基路径（如 家庭1/测试），本地子目录自动拼接到其后",
+                    __mf_9("div", _hoisted_2, [
+                      _cache[12] || (_cache[12] = __mf_9("span", { class: "text-body-2 text-medium-emphasis" }, "目标文件夹：", -1)),
+                      (__mf_13(true), __mf_8(__mf_4, null, __mf_14(folderStack.value, (f, i) => {
+                        return (__mf_13(), __mf_8(__mf_4, {
+                          key: f.id
+                        }, [
+                          (i > 0)
+                            ? (__mf_13(), __mf_8("span", _hoisted_3, "/"))
+                            : __mf_7("", true),
+                          __mf_11(_component_v_chip, {
+                            size: "x-small",
+                            color: i === folderStack.value.length - 1 ? 'primary' : 'default',
+                            variant: "tonal",
+                            onClick: $event => (goToFolder(i))
+                          }, {
+                            default: __mf_17(() => [
+                              __mf_10(__mf_3(f.name), 1)
+                            ]),
+                            _: 2
+                          }, 1032, ["color", "onClick"])
+                        ], 64))
+                      }), 128)),
+                      (cfg.value.target_folder_id)
+                        ? (__mf_13(), __mf_6(_component_v_chip, {
+                            key: 0,
+                            size: "x-small",
+                            color: "success",
+                            variant: "tonal",
+                            class: "ml-1"
+                          }, {
+                            default: __mf_17(() => [
+                              __mf_10(" 已选：" + __mf_3(cfg.value.target_folder_name), 1)
+                            ]),
+                            _: 1
+                          }))
+                        : __mf_7("", true)
+                    ]),
+                    __mf_11(_component_v_select, {
+                      modelValue: folderSelected.value,
+                      "onUpdate:modelValue": [
+                        _cache[7] || (_cache[7] = $event => ((folderSelected).value = $event)),
+                        onFolderPick
+                      ],
+                      items: folderList.value,
+                      loading: folderLoading.value,
+                      label: "子文件夹",
+                      hint: folderHint.value,
                       "persistent-hint": "",
-                      density: "compact"
-                    }, null, 8, ["modelValue"])
+                      density: "compact",
+                      "item-title": "label",
+                      "return-object": ""
+                    }, null, 8, ["modelValue", "items", "loading", "hint"])
                   ]),
                   _: 1
                 }),
@@ -373,7 +497,7 @@ return (_ctx, _cache) => {
               loading: saving.value,
               onClick: save
             }, {
-              default: __mf_17(() => [...(_cache[12] || (_cache[12] = [
+              default: __mf_17(() => [...(_cache[13] || (_cache[13] = [
                 __mf_10("保存配置", -1)
               ]))]),
               _: 1
