@@ -14,6 +14,7 @@ CAS视频扩展（CasFileExtender）
 并不会实时读 settings，所以仅修改 settings.RMT_MEDIAEXT 或在类上打补丁都不够，
 必须直接刷新这些已实例化对象的缓存列表。
 """
+import re
 import threading
 import time
 from pathlib import Path
@@ -384,25 +385,55 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
     base = str(basename or "").strip()
     real = str(real_name or "").strip()
 
+    def season_episode(text: str) -> Optional[str]:
+        """提取 SxxExx（忽略大小写/分隔符），如 S01E02 -> 's01e02'。"""
+        m = re.search(r"[sS](\d{1,2})[eE](\d{2,4})", str(text or ""))
+        return f"s{int(m.group(1)):02d}e{int(m.group(2)):02d}" if m else None
+
+    def is_video_output(name: str) -> bool:
+        return bool(name) and not name.lower().endswith(f".{DEFAULT_EXT}") \
+            and Path(name).suffix.lower() in _CAS_OUTPUT_EXTS
+
     def match(entries: List[Any]) -> Optional[Any]:
-        # 首选真实文件名（如 2160p.mkv，来自 .cas 文件名去后缀，不读内容）
+        # ① 首选真实文件名（如 2160p.mkv，来自目标 .cas 名去后缀，不读内容）
         if real:
             for entry in entries:
                 if str(getattr(entry, "name", "") or "").lower() == real.lower():
                     return entry
-        # 退回：basename 相同、扩展名是视频、非 .cas
+        # ② 退回：basename 相同、扩展名是视频、非 .cas
         if base:
             for entry in entries:
                 name = str(getattr(entry, "name", "") or "")
-                if not name or name.lower().endswith(f".{DEFAULT_EXT}"):
-                    continue
-                if Path(name).stem.lower() != base.lower():
-                    continue
-                if Path(name).suffix.lower() in _CAS_OUTPUT_EXTS:
+                if is_video_output(name) and Path(name).stem.lower() == base.lower():
                     return entry
+        # ③ 兜底：按季集号（SxxExx）唯一匹配。
+        # 场景：整理重命名后目标是中文名，但某些上传仍用英文源文件名
+        # （One.of.a.Kind...S01E02... vs 独一无二的浪漫 - S01E02），
+        # 两者只有季集号相同。必须「唯一命中」才采纳，避免同目录多集时认错。
+        wanted_se = season_episode(real) or season_episode(base)
+        if wanted_se:
+            hits = [
+                entry for entry in entries
+                if is_video_output(str(getattr(entry, "name", "") or ""))
+                and season_episode(getattr(entry, "name", "")) == wanted_se
+            ]
+            if len(hits) == 1:
+                logger.debug(
+                    f"CAS视频扩展：文件名不一致，按季集号 {wanted_se} 唯一匹配到产出 "
+                    f"{getattr(hits[0], 'name', '?')}"
+                )
+                return hits[0]
+            if len(hits) > 1:
+                logger.debug(
+                    f"CAS视频扩展：季集号 {wanted_se} 匹配到 {len(hits)} 个产出，无法唯一定位，跳过"
+                )
         return None
 
     rounds = wait_rounds if wait else 1
+    # 上传刚返回时 CAS 可能还没消费 .cas 生成产出，先给一点缓冲再开始查，
+    # 避免「上传刚启动就查、查不到就判失败」的过早误判。
+    if wait:
+        time.sleep(wait_interval)
     for i in range(rounds):
         # 仅首轮把完整目录清单写到 DEBUG（排查用），其余轮次完全静默
         entries = _list_openlist_dir(storage_oper, parent, verbose=(i == 0))
@@ -621,7 +652,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后以 OpenList 目录里能否查到 CAS 产出的真实视频作为上传成败的唯一判据（查到=成功并显示真实文件名/大小，查不到=失败），修复秒传后上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.42"
+    plugin_version = "1.43"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
