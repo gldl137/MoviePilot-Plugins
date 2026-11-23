@@ -36,3 +36,4 @@ __pycache__/
 
 # vite 临时文件
 **/vite.config.ts.timestamp-*
+**/vite.config.js.timestamp-*
