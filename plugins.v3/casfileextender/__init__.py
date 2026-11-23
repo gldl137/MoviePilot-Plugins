@@ -452,26 +452,41 @@ def _patch_alist_upload() -> None:
         _remember_cas_target(target_path, cas_size, basename,
                              real_name=out_name, real_size=out_size)
 
-        # 用 OpenList 查到的真实产出文件信息修正上传结果：归档显示真实大小，
-        # path/name 保留 .cas 目标（不破坏宿主以 frozen target_file 为核心的核对链路），
-        # size 必须是查到的真实值，保证后续身份核对 expected/current 一致。
-        if isinstance(out_size, int) and out_size > 0:
-            try:
-                if result is None:
-                    result = _build_uploaded_fileitem(
-                        self, target_dir, path, new_name, size_override=out_size
-                    )
-                elif hasattr(result, "model_copy"):
-                    result = result.model_copy(update={"size": out_size})
-                else:
-                    setattr(result, "size", out_size)
-                logger.info(
-                    f"CAS视频扩展：已在 OpenList 查到 CAS 产出视频 {out_name}，"
-                    f"上传结果大小采用实际文件 {out_size} bytes"
+        # 用 OpenList 实际查到的产出视频合成上传结果：path/name 用真实视频名、
+        # size 用真实大小，使整理历史记录（dest / dest_fileitem）显示真实视频而非 .cas。
+        # 用 __build_transfer_item 合成（不带 fileid），避免后续身份核对触发 fileid 冲突。
+        try:
+            from types import SimpleNamespace
+            real_target_path = Path(target_dir_str) / out_name
+            builder = (getattr(self, "_Alist__build_transfer_item", None)
+                       or getattr(self, "__build_transfer_item", None))
+            source_item = SimpleNamespace(
+                type="file", size=out_size,
+                modify_time=getattr(output, "modify_time", None), thumbnail=None,
+            )
+            new_item = None
+            if callable(builder):
+                new_item = builder(source_item, real_target_path)
+            if new_item is None:
+                from app.schemas.file import FileItem
+                schema = getattr(type(self), "schema", None)
+                storage_value = getattr(schema, "value", "alist") if schema is not None else "alist"
+                new_item = FileItem(
+                    storage=storage_value, type="file", path=real_target_path.as_posix(),
+                    name=out_name, basename=Path(out_name).stem,
+                    extension=Path(out_name).suffix[1:] or None,
+                    size=out_size, modify_time=getattr(output, "modify_time", None),
                 )
-            except Exception as err:
-                logger.warning(f"CAS视频扩展：用实际文件修正上传结果失败：{err}")
-        return result
+            # 保留 pending：delete_move_source 核对仍以 frozen 的 .cas 路径查询，
+            # 需靠 get_item_strict 兜底返回一致 size 的合成项（核对只看 size/type/fileid）。
+            logger.info(
+                f"CAS视频扩展：已在 OpenList 查到 CAS 产出视频 {out_name}，"
+                f"上传结果已替换为真实文件（{out_size} bytes），整理记录将显示真实视频"
+            )
+            return new_item
+        except Exception as err:
+            logger.warning(f"CAS视频扩展：用实际文件替换上传结果失败：{err}")
+            return result
 
     def get_item_strict_with_cas(self, path: Any, *args, **kwargs):
         result = _orig_alist_get_item_strict(self, path, *args, **kwargs)
@@ -555,9 +570,9 @@ def _patch_alist_upload() -> None:
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后实际 list 查询 OpenList 目录并把查到的文件名/格式/大小打到日志，以真实文件判断秒传成败并用于归档显示，修复上传/核对误报。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后实际 list 查询 OpenList 目录并把查到的文件名/格式/大小打到日志，以真实文件判断秒传成败，并让整理历史记录显示真实视频名与真实大小（非 .cas/344B），修复上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.35"
+    plugin_version = "1.36"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
