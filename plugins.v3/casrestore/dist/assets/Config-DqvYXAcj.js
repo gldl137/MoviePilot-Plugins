@@ -6,12 +6,18 @@ const _hoisted_1 = { class: "pa-4" };
 const _sfc_main = {
   __name: 'Config',
   props: {
+  initialConfig: { type: Object, default: () => ({}) },
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
+  nativeSubscribe: { type: Function, default: null },
 },
-  setup(__props) {
+  emits: ['save', 'close', 'switch'],
+  setup(__props, { emit: __emit }) {
 
 const props = __props;
+
+const emit = __emit;
 
 const cfg = __mf_1({
   enabled: false,
@@ -22,6 +28,7 @@ const cfg = __mf_1({
   target_folder_path: '',
   notify: true,
   onlyonce: false,
+  ...(props.initialConfig || {}),
 });
 
 const accounts = __mf_1([]);
@@ -30,17 +37,6 @@ const accountHint = __mf_1('');
 const familyHint = __mf_1('');
 const loading = __mf_1(false);
 const saving = __mf_1(false);
-
-async function loadConfig() {
-  try {
-    const r = await props.api.get(`plugin/${props.pluginId}/config`);
-    if (r && r.config && typeof r.config === 'object') {
-      cfg.value = { ...cfg.value, ...r.config };
-    }
-  } catch (e) {
-    console.error('CasRestore load config failed', e);
-  }
-}
 
 async function loadAccounts() {
   try {
@@ -83,14 +79,15 @@ async function loadFamilies() {
   }
 }
 
-async function save() {
+function save() {
   saving.value = true;
   try {
-    await props.api.post(`plugin/${props.pluginId}/save_config`, cfg.value);
-  } catch (e) {
-    console.error('CasRestore save config failed', e);
+    // 主应用监听 save 事件接管配置保存，无需插件自己调用后端保存接口
+    emit('save', cfg.value);
   } finally {
-    saving.value = false;
+    setTimeout(() => {
+      saving.value = false;
+    }, 500);
   }
 }
 
@@ -100,7 +97,6 @@ __mf_13(() => cfg.value.scope, loadFamilies);
 __mf_9(async () => {
   loading.value = true;
   try {
-    await loadConfig();
     await loadAccounts();
     await loadFamilies();
   } finally {
@@ -288,7 +284,7 @@ return (_ctx, _cache) => {
               onClick: save
             }, {
               default: __mf_14(() => [...(_cache[10] || (_cache[10] = [
-                __mf_7("保存", -1)
+                __mf_7("保存配置", -1)
               ]))]),
               _: 1
             }, 8, ["loading"])

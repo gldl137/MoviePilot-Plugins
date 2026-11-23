@@ -2,6 +2,8 @@
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
+  nativeSubscribe: { type: Function, default: null },
 })
 </script>
 

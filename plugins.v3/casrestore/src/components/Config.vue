@@ -2,9 +2,14 @@
 import { ref, onMounted, watch } from 'vue'
 
 const props = defineProps({
+  initialConfig: { type: Object, default: () => ({}) },
   api: { type: Object, default: () => ({}) },
   pluginId: { type: String, default: '' },
+  sourcePluginId: { type: String, default: '' },
+  nativeSubscribe: { type: Function, default: null },
 })
+
+const emit = defineEmits(['save', 'close', 'switch'])
 
 const cfg = ref({
   enabled: false,
@@ -15,6 +20,7 @@ const cfg = ref({
   target_folder_path: '',
   notify: true,
   onlyonce: false,
+  ...(props.initialConfig || {}),
 })
 
 const accounts = ref([])
@@ -23,17 +29,6 @@ const accountHint = ref('')
 const familyHint = ref('')
 const loading = ref(false)
 const saving = ref(false)
-
-async function loadConfig() {
-  try {
-    const r = await props.api.get(`plugin/${props.pluginId}/config`)
-    if (r && r.config && typeof r.config === 'object') {
-      cfg.value = { ...cfg.value, ...r.config }
-    }
-  } catch (e) {
-    console.error('CasRestore load config failed', e)
-  }
-}
 
 async function loadAccounts() {
   try {
@@ -76,14 +71,15 @@ async function loadFamilies() {
   }
 }
 
-async function save() {
+function save() {
   saving.value = true
   try {
-    await props.api.post(`plugin/${props.pluginId}/save_config`, cfg.value)
-  } catch (e) {
-    console.error('CasRestore save config failed', e)
+    // 主应用监听 save 事件接管配置保存，无需插件自己调用后端保存接口
+    emit('save', cfg.value)
   } finally {
-    saving.value = false
+    setTimeout(() => {
+      saving.value = false
+    }, 500)
   }
 }
 
@@ -93,7 +89,6 @@ watch(() => cfg.value.scope, loadFamilies)
 onMounted(async () => {
   loading.value = true
   try {
-    await loadConfig()
     await loadAccounts()
     await loadFamilies()
   } finally {
@@ -180,7 +175,7 @@ onMounted(async () => {
       </v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn color="primary" :loading="saving" @click="save">保存</v-btn>
+        <v-btn color="primary" :loading="saving" @click="save">保存配置</v-btn>
       </v-card-actions>
     </v-card>
   </div>
