@@ -1,7 +1,7 @@
 """
 CAS恢复源文件（CasRestore）
 
-监控目录中的 .cas 秒传文件（inotify 事件驱动，新文件写入完成即自动恢复，不轮询），
+监控目录中的 .cas 秒传文件（watchdog 事件驱动，新文件写入完成即自动恢复，不轮询），
 调用 CAS 服务的 /api/cas-restore/restore 接口，在网盘直接恢复源文件。
 
 特点：
@@ -9,7 +9,7 @@ CAS恢复源文件（CasRestore）
    from app.sdk.plugins import PluginManager
    cfg = PluginManager().run_plugin_method("casassistant", "get_cas_config")
    # cfg = {"enabled": bool, "host": str, "api_key": str}
-2. 只处理 .cas 后缀文件；inotify 不可用（非 Linux / 缺依赖）时回退 30 秒轮询兜底。
+2. 只处理 .cas 后缀文件；watchdog 不可用时回退 30 秒轮询兜底。
 3. 网盘目录跟随本地结构：目标文件夹路径 + 本地相对子目录（manual 模式，CAS 自动建目录），
    恢复成功删除 .cas 后自动清空本地空目录（边界为监控目录本身，不向上越界）。
 4. 请求一次只提交一条 .cas（files 数组仅一个元素）。
@@ -40,10 +40,12 @@ try:  # HTTP 请求
 except ImportError:  # 宿主通常自带 requests
     requests = None  # type: ignore
 
-try:  # Linux 目录事件监控（inotify）
-    from inotify.adapters import InotifyTrees
+try:  # 目录事件监控（watchdog，MoviePilot 自带依赖）
+    from watchdog.observers import Observer as _WD_Observer
+    _WATCHDOG_OK = True
 except ImportError:
-    InotifyTrees = None  # type: ignore
+    _WD_Observer = None  # type: ignore
+    _WATCHDOG_OK = False
 
 try:  # 读取 CAS助手 插件配置
     from app.sdk.plugins import PluginManager
@@ -83,6 +85,21 @@ try:  # 内网自签证书时禁用告警
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except Exception:  # noqa: BLE001
     pass
+
+
+class _CasEventHandler:
+    """watchdog 事件处理器（duck-typing）：只响应文件写入完成（closed）与移入（moved）。"""
+
+    def __init__(self, plugin: "CasRestore") -> None:
+        self._plugin = plugin
+
+    def on_closed(self, event: Any) -> None:
+        if not event.is_directory:
+            self._plugin._on_fs_event(event.src_path)
+
+    def on_moved(self, event: Any) -> None:
+        if not event.is_directory:
+            self._plugin._on_fs_event(event.dest_path)
 
 
 # ---------------- 配置页组件辅助 ----------------
@@ -174,7 +191,7 @@ class CasRestore(_PluginBase):
     plugin_desc = ("扫描监控目录中的 .cas 秒传文件，调用 CAS 服务接口直接在网盘恢复源文件；"
                    "服务地址与 API Key 自动读取 CAS助手 插件配置，未配置时回退本插件填写。")
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.2.4"
+    plugin_version = "1.3.0"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casrestore_"
@@ -226,7 +243,7 @@ class CasRestore(_PluginBase):
                 text = ""
             self._config[key] = text
         self._enabled = bool(self._config.get("enabled"))
-        mode = "inotify 事件监控" if InotifyTrees is not None else "轮询兜底"
+        mode = "watchdog 事件监控" if _WATCHDOG_OK else "轮询兜底"
         self._log(f"初始化完成：启用={self._enabled}，监控方式={mode}，"
                   f"监控目录={self._cfg_str('watch_dir') or '未设置'}")
         if self._enabled:
@@ -309,7 +326,7 @@ class CasRestore(_PluginBase):
 
         cfgs = [
             _alert(
-                "监控目录有新 .cas 文件写入完成时自动恢复（inotify 事件驱动，不轮询），"
+                "监控目录有新 .cas 文件写入完成时自动恢复（watchdog 事件驱动，不轮询），"
                 "调用 CAS 服务接口直接在网盘恢复源文件。CAS 服务地址与 API Key 直接读取"
                 "「CAS助手」插件配置；账号/家庭直接从 CAS 服务下拉选择。网盘目录自动跟随"
                 "本地子目录结构，恢复成功后删除 .cas 并清空本地空目录。每次请求只提交一条 .cas。"
@@ -636,46 +653,46 @@ class CasRestore(_PluginBase):
             self._log("守护线程已启动")
 
     def _worker_loop(self) -> None:
-        """调度入口：优先 inotify 事件驱动（新 .cas 写入完成即恢复），不可用时回退轮询。"""
-        if InotifyTrees is not None:
+        """调度入口：优先 watchdog 事件驱动（新 .cas 写入完成即恢复），不可用时回退轮询。"""
+        if _WATCHDOG_OK:
             try:
-                self._inotify_loop()
+                self._watch_loop()
                 return
             except Exception as err:  # noqa: BLE001
-                self._log(f"inotify 监控异常，回退轮询：{err}", "warning")
+                self._log(f"watchdog 监控异常，回退轮询：{err}", "warning")
         else:
-            self._log("当前环境缺少 inotify（非 Linux 或未安装依赖），回退轮询监控", "warning")
+            self._log("当前环境缺少 watchdog，回退轮询监控", "warning")
         self._poll_loop()
 
-    def _inotify_loop(self) -> None:
-        """inotify 事件循环：只响应 IN_CLOSE_WRITE / IN_MOVED_TO（写入/移入完成）。"""
-        import os
-
+    def _watch_loop(self) -> None:
+        """watchdog 事件循环：递归监听，新 .cas 写入完成 / 移入即恢复。"""
         watch_dir = self._cfg_str("watch_dir")
-        trees = InotifyTrees([watch_dir])
-        self._log(f"已启动 inotify 目录监控（事件驱动）：{watch_dir}")
-        for event in trees.event_gen():
-            if self._stop_event.is_set() or self._thread is not threading.current_thread():
-                break
-            if event is None:
-                continue
-            (_, type_names, path, filename) = event
-            types = set(type_names)
-            if "IN_CLOSE_WRITE" not in types and "IN_MOVED_TO" not in types:
-                continue
-            if not filename:
-                continue
-            full = os.path.join(path, filename)
-            if not full.lower().endswith(".cas"):
-                continue
-            try:
-                self._process_file(Path(full))
-            except Exception as err:  # noqa: BLE001
-                self._log(f"处理 {filename} 异常：{err}", "error")
-        self._log("inotify 监控已退出")
+        observer = _WD_Observer()
+        observer.schedule(_CasEventHandler(self), watch_dir, recursive=True)
+        observer.start()
+        self._log(f"已启动 watchdog 目录监控（事件驱动）：{watch_dir}")
+        try:
+            while not self._stop_event.is_set() and self._thread is threading.current_thread():
+                self._stop_event.wait(timeout=1)
+        finally:
+            observer.stop()
+            observer.join(timeout=5)
+        self._log("watchdog 监控已退出")
+
+    def _on_fs_event(self, full: str) -> None:
+        """文件系统事件回调（watchdog 线程）：只处理 .cas 文件。"""
+        if self._stop_event.is_set() or not full.lower().endswith(".cas"):
+            return
+        try:
+            path = Path(full)
+            if not path.is_file():
+                return
+            self._process_file(path)
+        except Exception as err:  # noqa: BLE001
+            self._log(f"处理 {Path(full).name} 异常：{err}", "error")
 
     def _poll_loop(self) -> None:
-        """回退轮询循环（inotify 不可用时）：固定 30 秒扫描一轮存量 .cas。"""
+        """回退轮询循环（watchdog 不可用时）：固定 30 秒扫描一轮存量 .cas。"""
         current = threading.current_thread()
         while not self._stop_event.is_set() and self._thread is current:
             self._trigger.wait(timeout=POLL_FALLBACK_SECONDS)
