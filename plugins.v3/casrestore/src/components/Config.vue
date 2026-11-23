@@ -102,6 +102,17 @@ watch(() => cfg.value.scope, loadFamilies)
 onMounted(async () => {
   loading.value = true
   try {
+    // 宿主未传 initialConfig 时（如从插件详情 Page 入口进入），从后端拉取已保存配置
+    if (!props.initialConfig || !Object.keys(props.initialConfig).length) {
+      try {
+        const r = await props.api.get(`plugin/${props.pluginId}/config`)
+        if (r && r.success && r.config) {
+          Object.assign(cfg.value, r.config)
+        }
+      } catch (e) {
+        console.error('CasRestore load config failed', e)
+      }
+    }
     await loadAccounts()
     await loadFamilies()
   } finally {
@@ -132,15 +143,6 @@ onMounted(async () => {
             <v-btn color="warning" variant="outlined" block :loading="clearing" @click="clearRun">
               清除运行记录
             </v-btn>
-          </v-col>
-          <v-col cols="12">
-            <v-text-field
-              v-model="cfg.watch_dir"
-              label="监控目录"
-              hint="容器内绝对路径（含子目录）"
-              persistent-hint
-              density="compact"
-            />
           </v-col>
           <v-col cols="12" md="4">
             <v-select
@@ -178,6 +180,15 @@ onMounted(async () => {
               density="compact"
               item-title="label"
               item-value="value"
+            />
+          </v-col>
+          <v-col cols="12">
+            <v-text-field
+              v-model="cfg.watch_dir"
+              label="监控目录"
+              hint="容器内绝对路径（含子目录）"
+              persistent-hint
+              density="compact"
             />
           </v-col>
           <v-col cols="12">
