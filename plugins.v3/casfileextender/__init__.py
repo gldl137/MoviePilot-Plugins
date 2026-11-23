@@ -57,16 +57,14 @@ INNER_VIDEO_EXTS = {
 
 
 def _load_settings():
-    """兼容不同宿主版本的 settings 导入路径。"""
-    try:
-        from app.sdk.config import settings
-        return settings
-    except Exception:
+    """兼容不同宿主版本的 settings 导入路径（旧版 app.sdk.config / 新版 app.runtime.config）。"""
+    for module in ("app.sdk.config", "app.runtime.config"):
         try:
-            from app.sdk.config import settings  # type: ignore
-            return settings
+            import importlib
+            return importlib.import_module(module).settings
         except Exception:
-            return None
+            continue
+    return None
 
 
 def _inject_media_ext() -> bool:
@@ -279,38 +277,52 @@ def _build_uploaded_fileitem(storage_oper: Any, target_dir: Any, path: Any,
         return None
 
 
+# CAS 产出视频的高频扩展名，按命中概率排序，用于精确探测（避免列整个目录）
+_CAS_OUTPUT_PROBE_EXTS = (
+    ".mkv", ".mp4", ".avi", ".mov", ".ts", ".flv", ".rmvb", ".webm", ".m4v", ".iso",
+)
+
+
 def _find_cas_output(storage_oper: Any, target_path: Any, basename: str) -> Optional[Any]:
     """
-    在 .cas 目标同目录查找 CAS 恢复产出的视频文件（basename 相同、扩展名为视频）。
+    在 .cas 目标同目录精确探测 CAS 恢复产出的视频文件（basename 相同 + 视频扩展名）。
 
-    找到返回该文件项（作为 CAS 已成功恢复的证据），否则 None。
+    CAS 产出名规律：源 `xxx.mkv.cas` -> `xxx.mkv`；内层丢失时 `xxx.cas` -> `xxx.mkv`。
+    因此候选为 `{basename}.{视频扩展名}`，直接 get_item 逐个探测，避免 list 整目录带来的
+    alist 缓存/性能问题。找到返回文件项（CAS 已成功恢复的证据），否则 None。
+
+    注意：只调用原生 get_item（非 strict），绝不调 get_item_strict，避免与补丁递归。
     """
-    try:
-        parent = Path(str(target_path)).parent
-        parent_as_posix = parent.as_posix()
-        # 用一个目录 FileItem 调 list；不同宿主签名可能是 path 或 fileitem
+    base = str(basename or "").strip()
+    if not base:
+        return None
+    # 若 basename 本身已带视频后缀（如内层保留时 stem=xxx.mkv），先探测它自身
+    candidates: List[str] = []
+    if Path(base).suffix.lower() in _CAS_OUTPUT_EXTS:
+        candidates.append(base)
+    for ext in _CAS_OUTPUT_PROBE_EXTS:
+        name = f"{base}{ext}"
+        if name not in candidates:
+            candidates.append(name)
+
+    parent = Path(str(target_path)).parent
+    getter = getattr(storage_oper, "get_item", None)
+    if not callable(getter):
+        return None
+    for name in candidates:
         try:
-            from app.schemas.file import FileItem as _FI
-            dir_item = _FI(storage="alist", type="dir", path=parent_as_posix)
-        except Exception:
-            dir_item = None
-        entries: List[Any] = []
-        if dir_item is not None:
-            try:
-                entries = list(storage_oper.list(dir_item) or [])
-            except TypeError:
-                entries = list(storage_oper.list(fileitem=dir_item) or [])
-        for entry in entries:
-            name = str(getattr(entry, "name", "") or "")
-            if not name or name.lower().endswith(f".{DEFAULT_EXT}"):
-                continue
-            if Path(name).stem.lower() != str(basename).lower():
-                continue
-            if Path(name).suffix.lower() not in _CAS_OUTPUT_EXTS:
-                continue
-            return entry
-    except Exception as err:
-        logger.debug(f"CAS视频扩展：查找 CAS 产出文件失败：{err}")
+            item = getter(parent / name)
+            if item is None:
+                # 兼容带 refresh 参数的宿主，强制回源查一次
+                try:
+                    item = getter(parent / name, refresh=True)
+                except TypeError:
+                    pass
+            if item is not None:
+                return item
+        except Exception as err:
+            logger.debug(f"CAS视频扩展：探测 CAS 产出 {name} 失败：{err}")
+            continue
     return None
 
 
@@ -437,6 +449,8 @@ def _patch_alist_upload() -> None:
             except Exception as err:
                 logger.warning(f"CAS视频扩展：严格查询兜底合成文件项失败：{err}")
                 return None
+        # 核对已收口，主动清理登记，避免同一路径后续整理读到旧 size
+        _forget_cas_target(path)
         logger.info(
             f"CAS视频扩展：{path_str} 已被 CAS 消费，凭同目录产出视频 "
             f"{getattr(output, 'name', '?')} 合成文件项通过整理核对"
@@ -454,7 +468,7 @@ class CasFileExtender(_PluginBase):
     plugin_name = "CAS视频扩展"
     plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链与目录监控扩展名缓存，并修复 CAS 秒传消费 .cas 后 OpenList 上传回查误报「上传 alist 失败」及跨存储 move 核对冲突转人工复核的问题。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.31"
+    plugin_version = "1.32"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
