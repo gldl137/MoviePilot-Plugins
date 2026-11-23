@@ -294,6 +294,52 @@ _CAS_OUTPUT_PROBE_EXTS = (
 )
 
 
+def _list_openlist_dir(storage_oper: Any, parent: Path, verbose: bool = True) -> List[Any]:
+    """
+    实际查询 OpenList 目录内容，返回文件项列表；verbose=True 时把查到的真实内容与格式打到日志。
+
+    这是判断 CAS 是否成功的直接依据：只有 list 出来的真实文件才算数。
+    """
+    entries: List[Any] = []
+    try:
+        parent_posix = parent.as_posix()
+        # 构造目录 FileItem（兼容不同宿主的字段），调原生 list
+        dir_item = None
+        try:
+            from app.schemas.file import FileItem as _FI
+            schema = getattr(type(storage_oper), "schema", None)
+            storage_value = getattr(schema, "value", "alist") if schema is not None else "alist"
+            dir_item = _FI(
+                storage=storage_value,
+                type="dir",
+                path=parent_posix,
+                name=parent.name or "/",
+                basename=parent.name or "",
+            )
+        except Exception as err:
+            logger.debug(f"CAS视频扩展：构造目录项失败：{err}")
+        if dir_item is not None:
+            try:
+                entries = list(storage_oper.list(dir_item) or [])
+            except TypeError:
+                entries = list(storage_oper.list(fileitem=dir_item) or [])
+    except Exception as err:
+        logger.warning(f"CAS视频扩展：查询 OpenList 目录失败：{err}")
+        return []
+
+    # 把实际查询到的内容与格式打到日志，供直接判断秒传是否成功
+    if verbose:
+        logger.info(f"CAS视频扩展：查询 OpenList 目录 {parent.as_posix()} 实际内容（共 {len(entries)} 项）：")
+        for entry in entries:
+            name = getattr(entry, "name", "") or ""
+            ftype = getattr(entry, "type", "") or ""
+            size = getattr(entry, "size", None)
+            ext = Path(str(name)).suffix.lower() or "(无扩展名)"
+            size_str = f"{size}B" if isinstance(size, int) else "?"
+            logger.info(f"CAS视频扩展：  - {name} | 类型={ftype} | 格式={ext} | 大小={size_str}")
+    return entries
+
+
 def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
                      real_name: Optional[str] = None,
                      wait: bool = False, wait_rounds: int = 12,
@@ -301,59 +347,45 @@ def _find_cas_output(storage_oper: Any, target_path: Any, basename: str,
     """
     查询 OpenList 目标目录里 CAS 实际产出的视频文件（唯一成功判据与大小来源）。
 
-    CAS 恢复是异步的：上传 .cas 后视频可能延迟出现。wait=True 时短轮询若干次，
-    直到查到真实文件为止；查不到返回 None（= CAS 未成功，宿主按原生失败处理）。
-
-    探测名来自真实文件名（real_name，由 .cas 文件名去后缀推导，如 2160p.mkv），
-    无则退回 basename + 视频扩展名逐个猜测。只调原生 get_item（非 strict），
-    绝不调 get_item_strict，避免与补丁递归。
+    直接 list 目录拿到真实文件清单（日志可见），再按真实文件名/basename 匹配产出视频。
+    CAS 恢复是异步的：wait=True 时短轮询若干次直到查到真实文件；查不到返回 None
+    （= CAS 未成功，宿主按原生失败处理）。
     """
     parent = Path(str(target_path)).parent
+    base = str(basename or "").strip()
+    real = str(real_name or "").strip()
 
-    def probe_once() -> Optional[Any]:
-        def probe(name: str) -> Optional[Any]:
-            if not name:
-                return None
-            try:
-                item = storage_oper.get_item(parent / name)
-                if item is None:
-                    try:
-                        item = storage_oper.get_item(parent / name, refresh=True)
-                    except TypeError:
-                        pass
-                return item
-            except Exception as err:
-                logger.debug(f"CAS视频扩展：探测 {name} 失败：{err}")
-                return None
-
-        # 首选真实文件名（如 2160p.mkv），来自文件名推导，不依赖 .cas 内容
-        real = str(real_name or "").strip()
-        if real and real.lower().endswith(_CAS_OUTPUT_PROBE_EXTS):
-            item = probe(real)
-            if item is not None:
-                return item
-
-        base = str(basename or "").strip()
-        if not base:
-            return None
-        candidates: List[str] = []
-        if Path(base).suffix.lower() in _CAS_OUTPUT_EXTS:
-            candidates.append(base)
-        for ext in _CAS_OUTPUT_PROBE_EXTS:
-            name = f"{base}{ext}"
-            if name not in candidates:
-                candidates.append(name)
-        for name in candidates:
-            item = probe(name)
-            if item is not None:
-                return item
+    def match(entries: List[Any]) -> Optional[Any]:
+        # 首选真实文件名（如 2160p.mkv，来自 .cas 文件名去后缀，不读内容）
+        if real:
+            for entry in entries:
+                if str(getattr(entry, "name", "") or "").lower() == real.lower():
+                    return entry
+        # 退回：basename 相同、扩展名是视频、非 .cas
+        if base:
+            for entry in entries:
+                name = str(getattr(entry, "name", "") or "")
+                if not name or name.lower().endswith(f".{DEFAULT_EXT}"):
+                    continue
+                if Path(name).stem.lower() != base.lower():
+                    continue
+                if Path(name).suffix.lower() in _CAS_OUTPUT_EXTS:
+                    return entry
         return None
 
     rounds = wait_rounds if wait else 1
     for i in range(rounds):
-        item = probe_once()
-        if item is not None:
-            return item
+        # 第一轮与最后一轮打印实际内容，中间静默，避免轮询刷屏
+        verbose = (i == 0 or i == rounds - 1)
+        entries = _list_openlist_dir(storage_oper, parent, verbose=verbose)
+        found = match(entries)
+        if found is not None:
+            if i > 0:
+                logger.info(
+                    f"CAS视频扩展：第 {i + 1} 次查询命中 CAS 产出 "
+                    f"{getattr(found, 'name', '?')}（{getattr(found, 'size', '?')}B）"
+                )
+            return found
         if i + 1 < rounds:
             time.sleep(wait_interval)
     return None
@@ -376,7 +408,8 @@ def _patch_alist_upload() -> None:
         return
 
     _orig_alist_upload = Alist.upload
-    _orig_alist_get_item_strict = Alist.get_item_strict
+    # get_item_strict 在部分宿主版本不存在，缺失时不 patch 它，绝不让整个 patch 失败
+    _orig_alist_get_item_strict = getattr(Alist, "get_item_strict", None)
 
     def upload_with_cas_fallback(self, *args, **kwargs):
         result = _orig_alist_upload(self, *args, **kwargs)
@@ -509,17 +542,22 @@ def _patch_alist_upload() -> None:
         return item
 
     Alist.upload = upload_with_cas_fallback
-    Alist.get_item_strict = get_item_strict_with_cas
+    if _orig_alist_get_item_strict is not None:
+        Alist.get_item_strict = get_item_strict_with_cas
     _alist_upload_patched = True
-    logger.info("CAS视频扩展：已为 OpenList 上传与严格查询加 .cas 秒传兜底")
+    logger.info(
+        "CAS视频扩展：补丁已安装（Alist.upload"
+        + (" + get_item_strict" if _orig_alist_get_item_strict is not None else "")
+        + "）—— 上传 .cas 后将查询 OpenList 目录实际内容判断秒传是否成功"
+    )
 
 
 class CasFileExtender(_PluginBase):
     # 插件元信息
     plugin_name = "CAS视频扩展"
-    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；以 OpenList 目录里实际存在的 CAS 产出视频为唯一成功判据与大小来源，修复秒传后上传/核对误报并让归档显示真实大小，不读 .cas 内容。"
+    plugin_desc = "把 .cas 注入 MoviePilot 视频白名单，刷新整理链扩展名缓存；上传后实际 list 查询 OpenList 目录并把查到的文件名/格式/大小打到日志，以真实文件判断秒传成败并用于归档显示，修复上传/核对误报。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.34"
+    plugin_version = "1.35"
     plugin_author = "gldl137"
     plugin_author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "casfileextender_"
