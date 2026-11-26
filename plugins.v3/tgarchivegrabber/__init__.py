@@ -230,7 +230,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -777,6 +777,20 @@ class TgArchiveGrabber(_PluginBase):
         except Exception as err:  # noqa: BLE001
             self._log(f"发送通知失败：{err}", "warning")
 
+    def _notify_bot(self, bot: Dict[str, str], bot_stats: Dict[str, int]) -> None:
+        """只向实际处理的机器人对应 chat 发汇总，不广播到宿主全部通知渠道。"""
+        if not self._cfg_bool("notify", True):
+            return
+        reply_chat_id = bot.get("chat_id")
+        if not reply_chat_id:
+            return
+        text = (
+            f"{self.plugin_name} 扫描完成\n"
+            f"成功 {bot_stats['ok']} 个，失败 {bot_stats['fail']} 个，"
+            f"输出目录：{Path(bot['download_dir']) / 'completed'}"
+        )
+        self._bot_reply(reply_chat_id, text, token=bot.get("token"))
+
     # ------------------------------------------------------------------
     # 守护线程与扫描调度
     # ------------------------------------------------------------------
@@ -882,13 +896,6 @@ class TgArchiveGrabber(_PluginBase):
                 )
                 self._last_result = summary
                 self._log(summary)
-                if stats["ok"] or stats["fail"]:
-                    self._notify(
-                        f"{self.plugin_name} 扫描完成",
-                        f"成功 {stats['ok']} 个，失败 {stats['fail']} 个，"
-                        f"输出目录：{'、'.join(str(Path(b['download_dir']) / 'completed')
-                                          for b in self._bots())}",
-                    )
             return True
         finally:
             self._scanning = False
@@ -1046,6 +1053,8 @@ class TgArchiveGrabber(_PluginBase):
         for bot in self._bots():
             if self._stop_event.is_set() or stats["handled"] >= max_round:
                 break
+            # 每个机器人单独统计，汇总通知只发给实际处理的那个机器人
+            bot_stats: Dict[str, int] = {"handled": 0, "ok": 0, "fail": 0, "skipped": 0}
             fp = bot["fp"]
             token = bot["token"]
             ckey = f"bot:{fp}:updates"
@@ -1087,19 +1096,27 @@ class TgArchiveGrabber(_PluginBase):
                     continue
                 if not self._match_archive(item):
                     cursor = max(cursor, sort_id)
-                    stats["skipped"] += 1
+                    bot_stats["skipped"] += 1
                     continue
                 if stats["handled"] >= max_round:
                     self._log(f"已达单轮处理上限 {max_round}，剩余更新留到下一轮")
                     break
                 stats["handled"] += 1
-                if self._process_item(item, processed, failures, stats):
+                bot_stats["handled"] += 1
+                if self._process_item(item, processed, failures, bot_stats):
                     cursor = max(cursor, sort_id)
                 else:
                     self._log("该消息处理失败，保留游标下轮重试，继续处理后续更新")
             cursors[ckey] = cursor
             if updates:
                 self._log(f"Bot {fp} 本轮拉取 {len(updates)} 条更新，游标={cursor}")
+            # 累加到全局统计（供日志与单轮上限判断）
+            stats["ok"] += bot_stats["ok"]
+            stats["fail"] += bot_stats["fail"]
+            stats["skipped"] += bot_stats["skipped"]
+            # 哪个机器人处理，就只向该机器人对应的 chat 发汇总通知
+            if bot_stats["ok"] or bot_stats["fail"]:
+                self._notify_bot(bot, bot_stats)
         return cursors
 
     def _test_connection(self) -> Dict[str, Any]:
