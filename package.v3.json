@@ -119,12 +119,13 @@
     "name": "TG机器人压缩包提取",
     "description": "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到各自下载目录下的 completed 子目录；支持两个机器人各自对应独立下载目录；同名可跳过/覆盖，解压后可删除原包。",
     "labels": "Telegram,群组,下载,解压",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "Moviepilot_A.png",
     "author": "gldl137",
     "author_url": "https://github.com/gldl137/MoviePilot-Plugins",
     "level": 1,
     "history": {
+      "v1.0.2": "设置页新增「发送通知」开关，可一键关闭所有处理汇总与结果通知。",
       "v1.0.1": "扫描完成汇总通知改为按机器人单独发送：哪个机器人处理的压缩包就只向该机器人对应的 chat 发送汇总，不再通过宿主通知广播到全部渠道。",
       "v1.0.0": "正式发布。"
     }

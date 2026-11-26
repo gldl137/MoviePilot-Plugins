@@ -230,7 +230,7 @@ class TgArchiveGrabber(_PluginBase):
     plugin_name = "TG机器人压缩包提取"
     plugin_desc = "把群里转发的压缩包交给 Telegram 机器人下载，解压文件平铺到下载目录下的 completed 子目录；同名可跳过/覆盖，解压后可删除原包，配置极简。"
     plugin_icon = "Moviepilot_A.png"
-    plugin_version = "1.0.1"
+    plugin_version = "1.0.2"
     plugin_author = "gldl137"
     author_url = "https://github.com/gldl137/MoviePilot-Plugins"
     plugin_config_prefix = "tgarchivegrabber_"
@@ -419,6 +419,7 @@ class TgArchiveGrabber(_PluginBase):
             _row(
                 _sel("conflict", "同名文件", CONFLICT_ACTIONS, "", md=4),
                 _sw("delete_archive", "解压后删除压缩包", "解压成功后删除原包（分卷包待全部到齐解压后统一删除）", md=4),
+                _sw("notify", "发送通知", "关闭后不再发送处理汇总与结果通知", md=4),
             ),
         ]
         return [{"component": "VForm", "content": cfgs}], {**self._default_config, **self._config}
